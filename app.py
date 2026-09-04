@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import io
 import json
 import os
@@ -33,6 +34,39 @@ def db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def sha256_fingerprint(value):
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+def add_security_fields(row):
+    canonical = {
+        key: row.get(key, "")
+        for key in (
+            "id", "batch", "weigh_date", "supplier", "id_no", "registered",
+            "plate", "goods", "gross", "tare", "net", "method", "weigher",
+            "driver",
+        )
+    }
+    serialized = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    row["id_hash"] = row.get("id_hash") or sha256_fingerprint(row.get("id", ""))
+    row["batch_hash"] = row.get("batch_hash") or sha256_fingerprint(row.get("batch", ""))
+    row["integrity_hash"] = sha256_fingerprint(serialized)
+    row["hash_algorithm"] = "SHA-256"
+    return row
+
+def generate_document_ids():
+    date_code = datetime.now().strftime("%Y%m%d")
+    con = db()
+    index = 1
+    while True:
+        suffix = f"{index:04d}"
+        business_id = f"GB{date_code}{suffix}"
+        batch_id = f"PC{date_code}{suffix}"
+        exists = con.execute("SELECT 1 FROM businesses WHERE id=?", (business_id,)).fetchone()
+        if not exists:
+            con.close()
+            return business_id, batch_id
+        index += 1
+
 def init_db():
     con = db()
     con.execute('''CREATE TABLE IF NOT EXISTS businesses (id TEXT PRIMARY KEY, payload TEXT NOT NULL, status TEXT NOT NULL, approval TEXT NOT NULL, updated_at TEXT NOT NULL)''')
@@ -40,6 +74,7 @@ def init_db():
     if not con.execute("SELECT 1 FROM businesses LIMIT 1").fetchone():
         now = datetime.now().isoformat(timespec="seconds")
         for item in DEMO_ROWS:
+            add_security_fields(item)
             con.execute("INSERT INTO businesses VALUES (?,?,?,?,?)", (item["id"], json.dumps(item, ensure_ascii=False), item["status"], item["approval"], now))
         con.commit()
     con.close()
@@ -50,6 +85,7 @@ def reset_demo_data():
     con.execute("DELETE FROM import_jobs")
     now = datetime.now().isoformat(timespec="seconds")
     for item in DEMO_ROWS:
+        add_security_fields(item)
         con.execute("INSERT INTO businesses VALUES (?,?,?,?,?)", (item["id"], json.dumps(item, ensure_ascii=False), item["status"], item["approval"], now))
     con.commit()
     con.close()
@@ -77,6 +113,7 @@ def get_rows():
     records = []
     for x in saved:
         row = json.loads(x["payload"]); row.update(status=x["status"], approval=x["approval"], updated_at=x["updated_at"])
+        add_security_fields(row)
         row["checks"] = check(row); row["passed"] = sum(v["passed"] for v in row["checks"]); records.append(row)
     return records
 
@@ -108,7 +145,12 @@ def persist_imported_rows(weigh_rows, inspect_rows):
         gross, tare, net = clean_number(raw.get("毛重 (Kg)")), clean_number(raw.get("皮重 (Kg)")), clean_number(raw.get("净重 (Kg)"))
         qty, price, amount = clean_number(quality.get("质检数量 (Kg)")), clean_number(quality.get("计价单价 (元 / Kg)")), clean_number(quality.get("计价金额 (元)"))
         row = {"id":business_id,"batch":str(raw.get("货物批次号", "")),"supplier":str(raw.get("供货方名称", "")),"id_no":str(raw.get("供货方身份证号", "")),"registered":str(raw.get("个体户登记标记", "否")),"plate":str(raw.get("车牌号", "")),"goods":str(raw.get("货物品名", "")),"gross":gross,"tare":tare,"net":net,"method":str(raw.get("过磅方式", "")),"weigher":str(raw.get("过磅员签字", "")),"driver":str(raw.get("司机签字", "")),"weigh_date":clean_date(raw.get("业务日期")),"inspect_id":str(quality.get("质检单编号", "")),"inspect_date":clean_date(quality.get("质检日期")),"spec":str(quality.get("货品规格", "")),"grade":str(quality.get("质检等级", "")),"inspect_qty":qty,"moisture":clean_number(quality.get("含水率 / 杂质率")),"price":price,"amount":amount,"inspector":str(quality.get("质检员签字", "")),"reviewer":str(quality.get("复核人签字", "")),"invoice":"reverse" if "反向" in str(quality.get("票据合规方式", "")) else "self" if "代开" in str(quality.get("票据合规方式", "")) else "none","annual":0,"frequency":0,"status":"待核验","approval":"无需审批"}
-        con.execute("INSERT OR REPLACE INTO businesses VALUES (?,?,?,?,?)", (business_id, json.dumps(row, ensure_ascii=False), "待核验", "无需审批", now)); imported += 1
+        add_security_fields(row)
+        is_risk = any(not item["passed"] for item in check(row))
+        status = "高风险" if is_risk else "合规通过"
+        approval = "待例外审批" if is_risk else "无需审批"
+        row["status"], row["approval"] = status, approval
+        con.execute("INSERT OR REPLACE INTO businesses VALUES (?,?,?,?,?)", (business_id, json.dumps(row, ensure_ascii=False), status, approval, now)); imported += 1
     con.commit(); con.close(); return imported
 
 def signed_in(): return bool(session.get("user"))
@@ -148,6 +190,59 @@ def dashboard():
     rows = get_rows(); total = len(rows); risks = [r for r in rows if r["passed"] < 9]
     imports = db().execute("SELECT filename,rows_count,result,created_at FROM import_jobs ORDER BY id DESC LIMIT 5").fetchall()
     return jsonify({"stats":{"total":total,"passed":sum(r["passed"] == 9 for r in rows),"risk":len(risks),"paid":sum(r["status"] == "已付款" for r in rows),"amount":sum(r["amount"] for r in rows)},"records":rows,"rules":[{"code":a,"name":b,"enabled":True} for a,b in RULES],"imports":[dict(x) for x in imports]})
+
+@app.post("/api/business/manual")
+def create_manual_business():
+    data = request.get_json(silent=True) or {}
+    required = ["supplier", "plate", "goods", "gross", "tare", "method", "weigher", "driver"]
+    missing = [field for field in required if not str(data.get(field, "")).strip()]
+    if missing:
+        return jsonify({"error": "请填写供货方、车牌号、货物品名、重量、过磅方式和签字信息"}), 400
+    gross, tare = clean_number(data.get("gross")), clean_number(data.get("tare"))
+    if gross <= tare or tare < 0:
+        return jsonify({"error": "毛重必须大于皮重，皮重不能小于 0"}), 400
+    business_id, batch_id = generate_document_ids()
+    now_date = clean_date(data.get("weigh_date"))
+    row = {
+        "id": business_id,
+        "batch": batch_id,
+        "supplier": str(data.get("supplier", "")).strip(),
+        "id_no": str(data.get("id_no", "")).strip(),
+        "registered": str(data.get("registered", "否")).strip() or "否",
+        "plate": str(data.get("plate", "")).strip(),
+        "goods": str(data.get("goods", "")).strip(),
+        "gross": gross,
+        "tare": tare,
+        "net": round(gross - tare, 2),
+        "method": str(data.get("method", "")).strip(),
+        "weigher": str(data.get("weigher", "")).strip(),
+        "driver": str(data.get("driver", "")).strip(),
+        "weigh_date": now_date,
+        "inspect_id": "",
+        "inspect_date": now_date,
+        "spec": "",
+        "grade": "",
+        "inspect_qty": 0,
+        "moisture": 0,
+        "price": 0,
+        "amount": 0,
+        "inspector": "",
+        "reviewer": "",
+        "invoice": "none",
+        "annual": 0,
+        "frequency": 0,
+        "status": "待核验",
+        "approval": "无需审批",
+    }
+    add_security_fields(row)
+    con = db()
+    con.execute(
+        "INSERT INTO businesses VALUES (?,?,?,?,?)",
+        (business_id, json.dumps(row, ensure_ascii=False), row["status"], row["approval"], datetime.now().isoformat(timespec="seconds")),
+    )
+    con.commit()
+    con.close()
+    return jsonify({"ok": True, "message": "手动单据已保存，编号和批次号已自动生成并完成 SHA-256 指纹留痕。", "record": row})
 
 @app.post("/api/business/<business_id>/approve")
 def approve(business_id):
