@@ -24,9 +24,9 @@ INSPECT_HEADERS = ["质检单编号", "关联过磅单编号", "质检日期", "
 
 DEMO_ROWS = [
     {"id":"GB20260825246","batch":"PC20260825246","supplier":"张建国","id_no":"510104197803152417","registered":"否","plate":"川A3F72P","goods":"废不锈钢","gross":12560,"tare":5820,"net":6740,"method":"一次过磅","weigher":"李军","driver":"王强","weigh_date":"2026-08-25","inspect_id":"ZJ20260825246","inspect_date":"2026-08-26","spec":"一级统料","grade":"A级","inspect_qty":6705,"moisture":0.52,"price":9.8,"amount":65709,"inspector":"刘梅","reviewer":"赵晓","invoice":"reverse","annual":382000,"frequency":2,"status":"已付款","approval":"无需审批"},
-    {"id":"GB20260829182","batch":"PC20260829183","supplier":"陈丽","id_no":"","registered":"是","plate":"川A8K91L","goods":"废杂铝合金","gross":9850,"tare":4650,"net":5200,"method":"二次过磅","weigher":"","driver":"陈丽","weigh_date":"2026-08-29","inspect_id":"ZJ20260829182","inspect_date":"2026-08-29","spec":"破碎杂铝","grade":"C级","inspect_qty":4300,"moisture":8.7,"price":13.2,"amount":68640,"inspector":"孙杰","reviewer":"","invoice":"none","annual":4960000,"frequency":8,"status":"高风险","approval":"待例外审批"},
-    {"id":"GB20260903001","batch":"PC20260903001","supplier":"周伟","id_no":"510105198611042010","registered":"否","plate":"川A6M28Q","goods":"废铁","gross":18320,"tare":7320,"net":11000,"method":"二次过磅","weigher":"王磊","driver":"周伟","weigh_date":"2026-09-03","inspect_id":"ZJ20260903001","inspect_date":"2026-09-03","spec":"重型废钢","grade":"B级","inspect_qty":10870,"moisture":1.4,"price":2.65,"amount":28805.5,"inspector":"陈敏","reviewer":"何露","invoice":"self","annual":684000,"frequency":3,"status":"合规通过","approval":"无需审批"},
-    {"id":"GB20260904007","batch":"PC20260904007","supplier":"刘芳","id_no":"510107197906184328","registered":"否","plate":"川A9D53K","goods":"废铜","gross":4680,"tare":1980,"net":2700,"method":"一次过磅","weigher":"李军","driver":"刘芳","weigh_date":"2026-09-04","inspect_id":"ZJ20260904007","inspect_date":"2026-09-03","spec":"紫杂铜","grade":"A级","inspect_qty":2700,"moisture":0.2,"price":61.0,"amount":164700,"inspector":"刘梅","reviewer":"赵晓","invoice":"reverse","annual":1180000,"frequency":4,"status":"高风险","approval":"例外审批通过"},
+    {"id":"GB20260829182","batch":"PC20260829183","supplier":"陈丽","id_no":"","registered":"是","plate":"川A8K91L","goods":"废杂铝合金","gross":9850,"tare":4650,"net":5200,"method":"二次过磅","weigher":"","driver":"陈丽","weigh_date":"2026-08-29","inspect_id":"ZJ20260829182","inspect_date":"2026-08-29","spec":"破碎杂铝","grade":"C级","inspect_qty":4300,"moisture":8.7,"price":13.2,"amount":68640,"inspector":"孙杰","reviewer":"","invoice":"none","annual":4960000,"frequency":8,"status":"高风险","approval":"待逐项风险处置"},
+    {"id":"GB20260903001","batch":"PC20260903001","supplier":"周伟","id_no":"510105198611042010","registered":"否","plate":"川A6M28Q","goods":"废铁","gross":18320,"tare":7320,"net":11000,"method":"二次过磅","weigher":"王磊","driver":"周伟","weigh_date":"2026-09-03","inspect_id":"ZJ20260903001","inspect_date":"2026-09-03","spec":"重型废钢","grade":"B级","inspect_qty":10870,"moisture":1.4,"price":2.65,"amount":28805.5,"inspector":"陈敏","reviewer":"何露","invoice":"self","annual":684000,"frequency":3,"status":"待核验","approval":"无需审批"},
+    {"id":"GB20260904007","batch":"PC20260904007","supplier":"刘芳","id_no":"510107197906184328","registered":"否","plate":"川A9D53K","goods":"废铜","gross":4680,"tare":1980,"net":2700,"method":"一次过磅","weigher":"李军","driver":"刘芳","weigh_date":"2026-09-04","inspect_id":"ZJ20260904007","inspect_date":"2026-09-03","spec":"紫杂铜","grade":"A级","inspect_qty":2700,"moisture":0.2,"price":61.0,"amount":164700,"inspector":"刘梅","reviewer":"赵晓","invoice":"reverse","annual":1180000,"frequency":4,"status":"高风险","approval":"待逐项风险处置"},
 ]
 
 def db():
@@ -53,6 +53,19 @@ def add_security_fields(row):
     row["hash_algorithm"] = "SHA-256"
     return row
 
+def ensure_workflow_fields(row, status=None, approval=None):
+    """Keep workflow state in the payload so old SQLite records can be upgraded safely."""
+    current_status = status or row.get("status", "待核验")
+    row["verified"] = bool(row.get("verified", current_status in ("已核验", "已付款")))
+    row["verification_status"] = "已核验" if row["verified"] else "待核验"
+    row.setdefault("review_cycle", 1)
+    row.setdefault("risk_decisions", {})
+    if approval is not None:
+        row["approval"] = approval
+    row["status"] = current_status
+    row.setdefault("approval", "无需审批")
+    return row
+
 def generate_document_ids():
     date_code = datetime.now().strftime("%Y%m%d")
     con = db()
@@ -74,8 +87,23 @@ def init_db():
     if not con.execute("SELECT 1 FROM businesses LIMIT 1").fetchone():
         now = datetime.now().isoformat(timespec="seconds")
         for item in DEMO_ROWS:
+            ensure_workflow_fields(item)
             add_security_fields(item)
             con.execute("INSERT INTO businesses VALUES (?,?,?,?,?)", (item["id"], json.dumps(item, ensure_ascii=False), item["status"], item["approval"], now))
+        con.commit()
+    else:
+        # One-time compatibility migration for databases created before workflow states existed.
+        for saved in con.execute("SELECT id,payload,status,approval FROM businesses").fetchall():
+            payload = json.loads(saved[1]); changed = False
+            before = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            ensure_workflow_fields(payload, saved[2], saved[3])
+            if saved[2] == "合规通过" and not payload["verified"]:
+                payload["status"] = "待核验"
+            if payload["status"] == "高风险" and payload["approval"] in ("例外审批通过", "待例外审批"):
+                payload["approval"] = "待逐项风险处置"
+            changed = before != json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            if changed:
+                con.execute("UPDATE businesses SET payload=?,status=?,approval=?,updated_at=? WHERE id=?", (json.dumps(payload, ensure_ascii=False), payload["status"], payload["approval"], datetime.now().isoformat(timespec="seconds"), saved[0]))
         con.commit()
     con.close()
 
@@ -85,6 +113,7 @@ def reset_demo_data():
     con.execute("DELETE FROM import_jobs")
     now = datetime.now().isoformat(timespec="seconds")
     for item in DEMO_ROWS:
+        ensure_workflow_fields(item)
         add_security_fields(item)
         con.execute("INSERT INTO businesses VALUES (?,?,?,?,?)", (item["id"], json.dumps(item, ensure_ascii=False), item["status"], item["approval"], now))
     con.commit()
@@ -113,9 +142,26 @@ def get_rows():
     records = []
     for x in saved:
         row = json.loads(x["payload"]); row.update(status=x["status"], approval=x["approval"], updated_at=x["updated_at"])
+        ensure_workflow_fields(row, x["status"], x["approval"])
         add_security_fields(row)
-        row["checks"] = check(row); row["passed"] = sum(v["passed"] for v in row["checks"]); records.append(row)
+        row["checks"] = check(row); row["passed"] = sum(v["passed"] for v in row["checks"])
+        failed_codes = {item["code"] for item in row["checks"] if not item["passed"]}
+        row["risk_decisions"] = {code: value for code, value in row.get("risk_decisions", {}).items() if code in failed_codes}
+        records.append(row)
     return records
+
+def get_business(business_id):
+    return next((row for row in get_rows() if row["id"] == business_id), None)
+
+def save_business(row, status=None, approval=None):
+    ensure_workflow_fields(row, status or row.get("status"), approval)
+    add_security_fields(row)
+    now = datetime.now().isoformat(timespec="seconds")
+    con = db()
+    con.execute("UPDATE businesses SET payload=?,status=?,approval=?,updated_at=? WHERE id=?", (json.dumps(row, ensure_ascii=False), row["status"], row["approval"], now, row["id"]))
+    con.commit(); con.close()
+    row["updated_at"] = now
+    return row
 
 def clean_number(value, default=0):
     if value is None or value == "": return default
@@ -144,12 +190,13 @@ def persist_imported_rows(weigh_rows, inspect_rows):
         quality = inspections.get(business_id, {})
         gross, tare, net = clean_number(raw.get("毛重 (Kg)")), clean_number(raw.get("皮重 (Kg)")), clean_number(raw.get("净重 (Kg)"))
         qty, price, amount = clean_number(quality.get("质检数量 (Kg)")), clean_number(quality.get("计价单价 (元 / Kg)")), clean_number(quality.get("计价金额 (元)"))
-        row = {"id":business_id,"batch":str(raw.get("货物批次号", "")),"supplier":str(raw.get("供货方名称", "")),"id_no":str(raw.get("供货方身份证号", "")),"registered":str(raw.get("个体户登记标记", "否")),"plate":str(raw.get("车牌号", "")),"goods":str(raw.get("货物品名", "")),"gross":gross,"tare":tare,"net":net,"method":str(raw.get("过磅方式", "")),"weigher":str(raw.get("过磅员签字", "")),"driver":str(raw.get("司机签字", "")),"weigh_date":clean_date(raw.get("业务日期")),"inspect_id":str(quality.get("质检单编号", "")),"inspect_date":clean_date(quality.get("质检日期")),"spec":str(quality.get("货品规格", "")),"grade":str(quality.get("质检等级", "")),"inspect_qty":qty,"moisture":clean_number(quality.get("含水率 / 杂质率")),"price":price,"amount":amount,"inspector":str(quality.get("质检员签字", "")),"reviewer":str(quality.get("复核人签字", "")),"invoice":"reverse" if "反向" in str(quality.get("票据合规方式", "")) else "self" if "代开" in str(quality.get("票据合规方式", "")) else "none","annual":0,"frequency":0,"status":"待核验","approval":"无需审批"}
+        row = {"id":business_id,"batch":str(raw.get("货物批次号", "")),"supplier":str(raw.get("供货方名称", "")),"id_no":str(raw.get("供货方身份证号", "")),"registered":str(raw.get("个体户登记标记", "否")),"plate":str(raw.get("车牌号", "")),"goods":str(raw.get("货物品名", "")),"gross":gross,"tare":tare,"net":net,"method":str(raw.get("过磅方式", "")),"weigher":str(raw.get("过磅员签字", "")),"driver":str(raw.get("司机签字", "")),"weigh_date":clean_date(raw.get("业务日期")),"inspect_id":str(quality.get("质检单编号", "")),"inspect_date":clean_date(quality.get("质检日期")),"spec":str(quality.get("货品规格", "")),"grade":str(quality.get("质检等级", "")),"inspect_qty":qty,"moisture":clean_number(quality.get("含水率 / 杂质率")),"price":price,"amount":amount,"inspector":str(quality.get("质检员签字", "")),"reviewer":str(quality.get("复核人签字", "")),"invoice":"reverse" if "反向" in str(quality.get("票据合规方式", "")) else "self" if "代开" in str(quality.get("票据合规方式", "")) else "none","annual":0,"frequency":0,"status":"待核验","approval":"无需审批","verified":False,"review_cycle":1,"risk_decisions":{}}
         add_security_fields(row)
         is_risk = any(not item["passed"] for item in check(row))
-        status = "高风险" if is_risk else "合规通过"
-        approval = "待例外审批" if is_risk else "无需审批"
+        status = "高风险" if is_risk else "待核验"
+        approval = "待逐项风险处置" if is_risk else "无需审批"
         row["status"], row["approval"] = status, approval
+        ensure_workflow_fields(row, status, approval)
         con.execute("INSERT OR REPLACE INTO businesses VALUES (?,?,?,?,?)", (business_id, json.dumps(row, ensure_ascii=False), status, approval, now)); imported += 1
     con.commit(); con.close(); return imported
 
@@ -233,7 +280,11 @@ def create_manual_business():
         "frequency": 0,
         "status": "待核验",
         "approval": "无需审批",
+        "verified": False,
+        "review_cycle": 1,
+        "risk_decisions": {},
     }
+    ensure_workflow_fields(row)
     add_security_fields(row)
     con = db()
     con.execute(
@@ -246,26 +297,77 @@ def create_manual_business():
 
 @app.post("/api/business/<business_id>/approve")
 def approve(business_id):
-    con = db(); row = con.execute("SELECT payload FROM businesses WHERE id=?", (business_id,)).fetchone()
-    if not row: return jsonify({"error":"业务不存在"}), 404
-    existing = get_rows()
-    business = next((item for item in existing if item["id"] == business_id), None)
-    if business and business["status"] == "已付款": return jsonify({"error":"已付款业务不能再次审批"}), 400
-    con.execute("UPDATE businesses SET status=?, approval=?, updated_at=? WHERE id=?", ("例外审批通过", "管理层例外审批通过", datetime.now().isoformat(timespec="seconds"), business_id)); con.commit(); con.close()
-    return jsonify({"ok":True, "message":"已记录管理层例外审批，业务现可进入付款审核。"})
+    business = get_business(business_id)
+    if not business: return jsonify({"error":"业务不存在"}), 404
+    if business["status"] == "已付款": return jsonify({"error":"已付款业务不能再次审批"}), 400
+    if business["passed"] < 9:
+        return jsonify({"error":"风险业务必须逐条驳回并完成补件，修正后再次核验，不能用例外审批跳过"}), 400
+    if not business["verified"]:
+        return jsonify({"error":"请先在核验中心确认‘已核验’"}), 400
+    return jsonify({"ok":True, "message":"该业务已完成核验，可进入付款中心。"})
 
 @app.post("/api/business/<business_id>/reject")
 def reject(business_id):
-    con = db(); row = con.execute("SELECT 1 FROM businesses WHERE id=?", (business_id,)).fetchone()
-    if not row: return jsonify({"error":"业务不存在"}), 404
-    con.execute("UPDATE businesses SET status=?, approval=?, updated_at=? WHERE id=?", ("审批驳回", "管理层驳回，退回补件", datetime.now().isoformat(timespec="seconds"), business_id)); con.commit(); con.close()
-    return jsonify({"ok":True, "message":"业务已驳回，已保留风险证据并退回补件。"})
+    code = (request.get_json(silent=True) or {}).get("code")
+    if not code:
+        return jsonify({"error":"风险依据必须逐条驳回，请提供规则编号 code"}), 400
+    return reject_risk(business_id, code)
+
+@app.post("/api/business/<business_id>/risk/<code>/reject")
+def reject_risk(business_id, code):
+    business = get_business(business_id)
+    if not business: return jsonify({"error":"业务不存在"}), 404
+    if business["status"] == "已付款": return jsonify({"error":"已付款业务不能再次处置风险"}), 400
+    check_item = next((item for item in business["checks"] if item["code"] == code), None)
+    if not check_item: return jsonify({"error":"风险规则不存在"}), 404
+    if check_item["passed"]: return jsonify({"error":"该规则当前已通过，无需驳回"}), 400
+    business.setdefault("risk_decisions", {})[code] = {"decision":"rejected", "updated_at":datetime.now().isoformat(timespec="seconds")}
+    business["verified"] = False
+    failed = [item for item in business["checks"] if not item["passed"]]
+    handled = sum(1 for item in failed if business["risk_decisions"].get(item["code"], {}).get("decision") == "rejected")
+    status = "审批驳回" if handled == len(failed) else "高风险"
+    approval = "管理层已逐项驳回，待补件" if status == "审批驳回" else f"待逐项风险处置 ({handled}/{len(failed)})"
+    save_business(business, status, approval)
+    return jsonify({"ok":True, "message": "该风险项已驳回，全部风险项已退回补件。" if status == "审批驳回" else f"已驳回 {code}，还需处理 {len(failed)-handled} 项风险。"})
+
+@app.post("/api/business/<business_id>/resubmit")
+def resubmit(business_id):
+    business = get_business(business_id)
+    if not business: return jsonify({"error":"业务不存在"}), 404
+    if business["status"] != "审批驳回": return jsonify({"error":"请先逐项驳回全部风险依据，再提交补件"}), 400
+    data = request.get_json(silent=True) or {}
+    editable = ("batch", "id_no", "registered", "plate", "goods", "gross", "tare", "method", "weigher", "driver", "weigh_date", "inspect_id", "inspect_date", "spec", "grade", "inspect_qty", "moisture", "price", "amount", "inspector", "reviewer", "invoice", "annual", "frequency")
+    for key in editable:
+        if key in data:
+            business[key] = data[key]
+    for key in ("gross", "tare", "net", "inspect_qty", "moisture", "price", "amount", "annual", "frequency"):
+        if key in business: business[key] = clean_number(business[key])
+    business["net"] = round(business["gross"] - business["tare"], 2)
+    business["review_cycle"] = int(business.get("review_cycle", 1)) + 1
+    business["verified"] = False; business["risk_decisions"] = {}
+    checks = check(business); passed = sum(item["passed"] for item in checks)
+    status = "待核验" if passed == 9 else "高风险"
+    approval = "无需审批" if passed == 9 else "待逐项风险处置"
+    save_business(business, status, approval)
+    business["checks"], business["passed"] = checks, passed
+    return jsonify({"ok":True, "message": "补件已提交，系统已重新执行 9 项规则，请再次核验。", "record":business})
+
+@app.post("/api/business/<business_id>/verify")
+def verify(business_id):
+    business = get_business(business_id)
+    if not business: return jsonify({"error":"业务不存在"}), 404
+    if business["status"] == "已付款": return jsonify({"error":"已付款业务已经核验"}), 400
+    if business["passed"] < 9: return jsonify({"error":"仍有风险项未通过，不能标记为已核验"}), 400
+    business["verified"] = True
+    save_business(business, "已核验", "无需审批")
+    return jsonify({"ok":True, "message":"已核验，业务现在可以进入付款中心。"})
 
 @app.post("/api/business/<business_id>/pay")
 def pay(business_id):
     rows = {r["id"]:r for r in get_rows()}; row=rows.get(business_id)
     if not row: return jsonify({"error":"业务不存在"}),404
-    if row["passed"] < 9 and "通过" not in row["approval"]: return jsonify({"error":"高风险业务须完成例外审批后才可付款"}),400
+    if row["passed"] < 9: return jsonify({"error":"风险业务必须补件修正并通过全部规则后才可付款"}),400
+    if not row["verified"] or row["status"] != "已核验": return jsonify({"error":"请先完成‘已核验’操作，核验后才能付款"}),400
     con=db(); con.execute("UPDATE businesses SET status=?, updated_at=? WHERE id=?",("已付款",datetime.now().isoformat(timespec="seconds"),business_id));con.commit();con.close()
     return jsonify({"ok":True,"message":"财务付款确认成功，已同步至全局合规台账。"})
 
@@ -275,15 +377,29 @@ def payment_code(business_id):
     row = rows.get(business_id)
     if not row:
         return jsonify({"error": "业务不存在"}), 404
-    if row["passed"] < 9 and "通过" not in row["approval"]:
+    if row["passed"] < 9 or not row["verified"]:
         return jsonify({"error": "该业务尚未满足付款条件"}), 403
     import qrcode
-    payload = f"GREENLOOP|{row['id']}|{row['supplier']}|{row['amount']:.2f}|PAYMENT_REVIEW"
+    mode = request.args.get("kind", "trace")
+    endpoint = "payment_landing" if mode == "wechat" else "trace_landing"
+    payload = url_for(endpoint, business_id=row["id"], _external=True)
     image = qrcode.make(payload)
     stream = io.BytesIO()
     image.save(stream, format="PNG")
     stream.seek(0)
     return send_file(stream, mimetype="image/png", max_age=0)
+
+@app.get("/trace/<business_id>")
+def trace_landing(business_id):
+    row = get_business(business_id)
+    if not row: return render_template("payment.html", missing=True), 404
+    return render_template("payment.html", row=row, mode="trace", missing=False)
+
+@app.get("/payment/<business_id>")
+def payment_landing(business_id):
+    row = get_business(business_id)
+    if not row: return render_template("payment.html", missing=True), 404
+    return render_template("payment.html", row=row, mode="wechat", missing=False)
 
 @app.post("/api/import")
 def upload():
@@ -332,8 +448,21 @@ def reset_demo():
 @app.get("/api/export")
 def export():
     wb=Workbook(); ws=wb.active; ws.title="合规台账"
-    ws.append(["业务编号","供应商","货物品名","净重(Kg)","金额(元)","通过规则","风险等级","审批状态","付款状态","最后更新时间"])
-    for r in get_rows(): ws.append([r["id"],r["supplier"],r["goods"],r["net"],r["amount"],f"{r['passed']}/9","合规" if r["passed"]==9 else "高风险",r["approval"],r["status"],r["updated_at"]])
+    headers = ["业务编号","供应商","货物品名","净重(Kg)","金额(元)","通过规则","风险等级","核验状态","审批状态","付款状态","最后更新时间"]
+    ws.append(headers)
+    rows = get_rows()
+    sort = request.args.get("sort", "risk_desc")
+    if sort == "risk_desc": rows.sort(key=lambda r: (r["passed"] == 9, r["passed"], r["updated_at"]))
+    elif sort == "risk_asc": rows.sort(key=lambda r: (r["passed"] != 9, -r["passed"], r["updated_at"]))
+    elif sort == "amount_desc": rows.sort(key=lambda r: r["amount"], reverse=True)
+    elif sort == "updated_desc": rows.sort(key=lambda r: r["updated_at"], reverse=True)
+    for r in rows:
+        ws.append([r["id"],r["supplier"],r["goods"],r["net"],r["amount"],f"{r['passed']}/9","高风险" if r["passed"] < 9 else "合规",r["verification_status"],r["approval"],r["status"],r["updated_at"]])
+    ws.auto_filter.ref = ws.dimensions
+    ws.freeze_panes = "A2"
+    for cell in ws[1]:
+        cell.font = __import__('openpyxl').styles.Font(bold=True, color="FFFFFF")
+        cell.fill = __import__('openpyxl').styles.PatternFill("solid", fgColor="167A59")
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width=18
     stream=io.BytesIO(); wb.save(stream); stream.seek(0)
