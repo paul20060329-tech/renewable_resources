@@ -214,9 +214,8 @@ def login():
         username=request.form.get("username", "").strip(); password=request.form.get("password", "")
         # 演示账户；部署时应替换为数据库密码哈希或企业 SSO。
         accounts = {
-            "001": ("123456", "赛事演示管理员", "合规管理"),
-            "admin": ("admin123", "系统管理员", "合规管理"),
-            "finance": ("finance123", "财务审核员", "财务审核"),
+            "001": ("123456", "陈清竹", "合规管理"),
+            "002": ("123456", "薛文庆", "合规管理"),
         }
         account = accounts.get(username)
         if account and password == account[0]:
