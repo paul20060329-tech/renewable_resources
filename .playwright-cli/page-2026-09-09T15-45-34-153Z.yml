@@ -1,0 +1,56 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: GL
+      - generic [ref=e6]: 绿循智审
+    - generic [ref=e7]:
+      - paragraph [ref=e8]: WELCOME BACK
+      - heading "登录工作台" [level=1] [ref=e9]
+      - paragraph [ref=e10]: 请输入授权账户信息，继续处理再生资源业务。
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - text: 账号
+          - textbox "账号" [ref=e13]:
+            - /placeholder: 请输入账号
+        - generic [ref=e14]:
+          - text: 密码
+          - textbox "密码" [ref=e15]:
+            - /placeholder: 请输入密码
+        - generic [ref=e16]:
+          - generic [ref=e17]: 安全连接
+          - generic [ref=e19]: 登录行为将被记录
+        - button "进入合规工作台 →" [ref=e20] [cursor=pointer]:
+          - text: 进入合规工作台
+          - generic [ref=e21]: →
+    - paragraph [ref=e22]: 受控访问 · 数据仅用于业务合规审核
+  - generic [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e25]: GREENLOOP / MATERIAL FLOW
+      - generic [ref=e27]: 01 / 03
+    - generic [ref=e28]:
+      - paragraph [ref=e29]: 再生资源 · 钢铁回收
+      - heading "让每一笔资源交易 可验证、可追溯。" [level=2] [ref=e30]:
+        - generic [ref=e31]: 让每一笔资源交易
+        - generic [ref=e32]: 可验证、可追溯。
+      - paragraph [ref=e33]: 从过磅、质检到付款归档，钢铁废料的每一次流转都留下清晰证据。
+    - generic [aria-hidden] [ref=e34]:
+      - generic [ref=e35]:
+        - text: FE
+        - generic [ref=e37]: SCRAP / 24
+      - generic [ref=e40]:
+        - generic [ref=e41]: 再生钢料
+        - generic [ref=e42]: KG 100%
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - generic [ref=e47]: "09"
+        - generic [ref=e48]: 固定合规规则
+      - generic [ref=e49]:
+        - generic [ref=e50]: 100%
+        - generic [ref=e51]: 业务链路留痕
+      - generic [ref=e52]:
+        - generic [ref=e53]: "01"
+        - generic [ref=e54]: 付款控制入口
+    - generic [ref=e55]:
+      - generic [ref=e56]: “
+      - paragraph [ref=e57]: 让可回收的材料，拥有可追溯的价值。
+      - text: 绿循智审 · 合规运营平台

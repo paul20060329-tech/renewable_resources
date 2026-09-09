@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, render_template, request, send_file, session, redirect, url_for
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "greenloop-demo-change-before-production")
@@ -23,10 +25,15 @@ PAYMENT_THRESHOLD = 50000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_TEMPLATE_DIR = os.path.join(BASE_DIR, "local_templates")
 LEDGER_TEMPLATE_PATH = os.path.join(BASE_DIR, "Data", "再生资源公司收购合规台账模板.xlsx")
+# 按当前用户提交的权限矩阵整理：
+#  - 财务负责人：只能看、驳回、付款审批（≥5万），不能修改单据；
+#  - 会计：导入单据与核验，不能付款；
+#  - 出纳：只对≤5万且已通过的业务执行付款，不参与核验与驳回；
+#  - 后台管理员：拥有全部权限。
 ROLE_PERMISSIONS = {
     "财务负责人": {"overview", "approval", "ledger"},
     "会计": {"overview", "ingest", "verify", "ledger"},
-    "出纳": {"overview", "ingest", "verify", "payment", "ledger"},
+    "出纳": {"overview", "payment", "ledger"},
     "后台管理员": {"overview", "ingest", "verify", "approval", "payment", "ledger", "admin"},
 }
 ACCOUNTS = {
@@ -40,17 +47,43 @@ WEIGH_HEADERS = ["过磅单编号", "货物批次号", "过磅时间", "供货�
 INSPECT_HEADERS = ["质检单编号", "关联过磅单编号", "质检时间", "货物品名", "货品规格", "质检等级", "质检扣杂数量 (Kg)", "含水率 / 杂质率", "计价单价 (元 / Kg)", "计价金额 (元)", "质检员签字", "复核人签字", "票据合规方式"]
 INBOUND_HEADERS = ["入库单编号", "关联过磅单编号", "入库时间", "入库数量 (Kg)", "仓管员签字", "付款时间"]
 
+# 大量虚拟姓名（仅用作演示，明显以"虚拟"/"X"前缀避免与真实姓名混用）。
+VIRTUAL_SURNAMES = ["赵", "钱", "孙", "李", "周", "吴", "郑", "王", "冯", "陈", "褚", "卫", "蒋", "沈", "韩"]
+VIRTUAL_GIVEN_NAMES = ["建国", "志远", "宏达", "明轩", "国良", "永福", "立军", "志伟", "秀英", "丽华", "文军", "秀梅", "建华", "彩霞", "海涛"]
+VIRTUAL_COMPANY_PREFIX = ["蓝海", "绿野", "银拓", "钢城", "循环", "环保", "资源", "循环再生", "金属再生", "物资回收"]
+VIRTUAL_COMPANY_SUFFIX = ["资源回收有限公司", "再生金属有限公司", "环保科技有限公司", "废旧物资回收部", "循环利用公司"]
+VIRTUAL_BANK_BRANCHES = ["中国工商银行虚拟支行", "中国农业银行虚拟分行", "中国建设银行虚拟支行", "中国银行虚拟分行", "虚拟商业银行支行"]
+
+def _pick_virtual_person_name(index):
+    """不依赖真实姓名的伪中文姓名；保证只生成演示用假数据。"""
+    surname = VIRTUAL_SURNAMES[index % len(VIRTUAL_SURNAMES)]
+    given = VIRTUAL_GIVEN_NAMES[(index // 3) % len(VIRTUAL_GIVEN_NAMES)]
+    return f"虚拟{surname}{given}{index:03d}"
+
+def _pick_virtual_company_name(index):
+    """明显的虚拟公司命名，避免与任何真实企业同名。"""
+    prefix = VIRTUAL_COMPANY_PREFIX[index % len(VIRTUAL_COMPANY_PREFIX)]
+    suffix = VIRTUAL_COMPANY_SUFFIX[(index // 2) % len(VIRTUAL_COMPANY_SUFFIX)]
+    return f"X{prefix}{suffix}{index:03d}"
+
+
 DEMO_ROWS = [
-    {"id":"GB202608250001","batch":"PC202608250001","supplier":"自然人甲","id_no":"SIM198501010001","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-001","goods":"废不锈钢","gross":12560,"tare":5820,"net":6740,"method":"一次过磅","weigher":"过磅员甲","driver":"司机甲","weigh_date":"2026-08-25","weigh_time":"2026-08-25 14:00","inspect_id":"ZJ202608250001","inspect_date":"2026-08-25","inspect_time":"2026-08-25 14:15","inbound_id":"RK202608250001","inbound_date":"2026-08-25","inbound_time":"2026-08-25 14:30","payment_time":"2026-08-26 10:00","spec":"一级统料","grade":"A级","inspect_qty":35,"inbound_qty":6705,"moisture":0.52,"price":9.8,"amount":65709,"inspector":"质检员甲","reviewer":"复核员甲","invoice":"reverse","annual":382000,"frequency":2,"bank_name":"自然人甲","bank_account":"622200000000000001","bank_branch":"虚拟银行一支行","status":"已付款","approval":"无需审批","paid_amount":65709},
-    {"id":"GB202608290002","batch":"PC202608290002","supplier":"自然人乙","id_no":"","supplier_type":"自然人","registered":"是","plate":"虚拟车牌-002","goods":"废杂铝合金","gross":9850,"tare":4650,"net":5200,"method":"二次过磅","weigher":"","driver":"司机乙","weigh_date":"2026-08-29","weigh_time":"2026-08-29 09:00","inspect_id":"ZJ202608290002","inspect_date":"2026-08-29","inspect_time":"2026-08-29 08:30","inbound_id":"RK202608290002","inbound_date":"2026-08-29","inbound_time":"2026-08-29 10:00","payment_time":"2026-08-30 10:00","spec":"破碎杂铝","grade":"C级","inspect_qty":900,"inbound_qty":4300,"moisture":8.7,"price":13.2,"amount":56760,"inspector":"质检员乙","reviewer":"","invoice":"none","annual":4960000,"frequency":8,"bank_name":"自然人乙","bank_account":"622200000000000002","bank_branch":"虚拟银行二支行","status":"高风险","approval":"待逐项风险处置","paid_amount":0},
-    {"id":"GB202609030003","batch":"PC202609030003","supplier":"自然人丙","id_no":"SIM198611040003","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-003","goods":"废铁","gross":18320,"tare":7320,"net":11000,"method":"二次过磅","weigher":"过磅员乙","driver":"司机丙","weigh_date":"2026-09-03","weigh_time":"2026-09-03 10:00","inspect_id":"ZJ202609030003","inspect_date":"2026-09-03","inspect_time":"2026-09-03 10:15","inbound_id":"RK202609030003","inbound_date":"2026-09-03","inbound_time":"2026-09-03 10:30","payment_time":"2026-09-03 16:00","spec":"重型废钢","grade":"B级","inspect_qty":0,"inbound_qty":11000,"moisture":1.4,"price":2.65,"amount":29150,"inspector":"质检员丙","reviewer":"复核员乙","invoice":"self","annual":684000,"frequency":3,"bank_name":"自然人丙","bank_account":"622200000000000003","bank_branch":"虚拟银行三支行","status":"待核验","approval":"无需审批","paid_amount":0},
-    {"id":"GB202609040004","batch":"PC202609040004","supplier":"自然人丁","id_no":"SIM197906180004","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-004","goods":"废铜","gross":4680,"tare":1980,"net":2700,"method":"一次过磅","weigher":"过磅员甲","driver":"司机丁","weigh_date":"2026-09-04","weigh_time":"2026-09-04 11:00","inspect_id":"ZJ202609040004","inspect_date":"2026-09-04","inspect_time":"2026-09-04 11:15","inbound_id":"RK202609040004","inbound_date":"2026-09-04","inbound_time":"2026-09-04 11:30","payment_time":"2026-09-05 10:00","spec":"紫杂铜","grade":"A级","inspect_qty":0,"inbound_qty":2700,"moisture":0.2,"price":61.0,"amount":164700,"inspector":"质检员甲","reviewer":"复核员甲","invoice":"reverse","annual":1180000,"frequency":4,"bank_name":"自然人丁","bank_account":"622200000000000004","bank_branch":"虚拟银行一支行","status":"高风险","approval":"待逐项风险处置","paid_amount":0},
-    {"id":"GB202609050005","batch":"PC202609050005","supplier":"模拟资源公司A","id_no":"","supplier_type":"公司","registered":"是","plate":"虚拟车牌-005","goods":"废电机","gross":8200,"tare":3100,"net":5100,"method":"一次过磅","weigher":"过磅员乙","driver":"司机戊","weigh_date":"2026-09-05","weigh_time":"2026-09-05 13:00","inspect_id":"ZJ202609050005","inspect_date":"2026-09-05","inspect_time":"2026-09-05 13:15","inbound_id":"RK202609050005","inbound_date":"2026-09-05","inbound_time":"2026-09-05 13:30","payment_time":"2026-09-05 17:00","spec":"混合电机","grade":"B级","inspect_qty":0,"inbound_qty":5100,"moisture":0.8,"price":5.5,"amount":28050,"inspector":"质检员乙","reviewer":"复核员乙","invoice":"reverse","annual":28050,"frequency":1,"bank_name":"模拟资源公司A","bank_account":"622200000000000005","bank_branch":"虚拟银行二支行","status":"待核验","approval":"无需审批","paid_amount":0},
+    {"id":"GB202608250001","batch":"PC202608250001","supplier":"虚拟自然人赵建国001","id_no":"SIM198501010001","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-001","goods":"废不锈钢","gross":12560,"tare":5820,"net":6740,"method":"一次过磅","weigher":"过磅员甲","driver":"司机甲","weigh_date":"2026-08-25","weigh_time":"2026-08-25 14:00","inspect_id":"ZJ202608250001","inspect_date":"2026-08-25","inspect_time":"2026-08-25 14:15","inbound_id":"RK202608250001","inbound_date":"2026-08-25","inbound_time":"2026-08-25 14:30","payment_time":"2026-08-26 10:00","spec":"一级统料","grade":"A级","inspect_qty":35,"inbound_qty":6705,"moisture":0.52,"price":9.8,"amount":65709,"inspector":"质检员甲","reviewer":"复核员甲","invoice":"reverse","annual":382000,"frequency":2,"bank_name":"虚拟自然人赵建国001","bank_account":"621700000000000001","bank_branch":"中国工商银行虚拟支行","status":"已付款","approval":"无需审批","paid_amount":65709},
+    {"id":"GB202608290002","batch":"PC202608290002","supplier":"虚拟自然人钱志远002","id_no":"","supplier_type":"自然人","registered":"是","plate":"虚拟车牌-002","goods":"废杂铝合金","gross":9850,"tare":4650,"net":5200,"method":"二次过磅","weigher":"","driver":"司机乙","weigh_date":"2026-08-29","weigh_time":"2026-08-29 09:00","inspect_id":"ZJ202608290002","inspect_date":"2026-08-29","inspect_time":"2026-08-29 08:30","inbound_id":"RK202608290002","inbound_date":"2026-08-29","inbound_time":"2026-08-29 10:00","payment_time":"2026-08-30 10:00","spec":"破碎杂铝","grade":"C级","inspect_qty":900,"inbound_qty":4300,"moisture":8.7,"price":13.2,"amount":56760,"inspector":"质检员乙","reviewer":"","invoice":"none","annual":4960000,"frequency":8,"bank_name":"虚拟自然人钱志远002","bank_account":"621700000000000002","bank_branch":"中国农业银行虚拟分行","status":"高风险","approval":"待逐项风险处置","paid_amount":0},
+    {"id":"GB202609030003","batch":"PC202609030003","supplier":"虚拟自然人孙宏达003","id_no":"SIM198611040003","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-003","goods":"废铁","gross":18320,"tare":7320,"net":11000,"method":"二次过磅","weigher":"过磅员乙","driver":"司机丙","weigh_date":"2026-09-03","weigh_time":"2026-09-03 10:00","inspect_id":"ZJ202609030003","inspect_date":"2026-09-03","inspect_time":"2026-09-03 10:15","inbound_id":"RK202609030003","inbound_date":"2026-09-03","inbound_time":"2026-09-03 10:30","payment_time":"2026-09-03 16:00","spec":"重型废钢","grade":"B级","inspect_qty":0,"inbound_qty":11000,"moisture":1.4,"price":2.65,"amount":29150,"inspector":"质检员丙","reviewer":"复核员乙","invoice":"self","annual":684000,"frequency":3,"bank_name":"虚拟自然人孙宏达003","bank_account":"621700000000000003","bank_branch":"中国建设银行虚拟支行","status":"待核验","approval":"无需审批","paid_amount":0},
+    {"id":"GB202609040004","batch":"PC202609040004","supplier":"虚拟自然人李明轩004","id_no":"SIM197906180004","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-004","goods":"废铜","gross":4680,"tare":1980,"net":2700,"method":"一次过磅","weigher":"过磅员甲","driver":"司机丁","weigh_date":"2026-09-04","weigh_time":"2026-09-04 11:00","inspect_id":"ZJ202609040004","inspect_date":"2026-09-04","inspect_time":"2026-09-04 11:15","inbound_id":"RK202609040004","inbound_date":"2026-09-04","inbound_time":"2026-09-04 11:30","payment_time":"2026-09-05 10:00","spec":"紫杂铜","grade":"A级","inspect_qty":0,"inbound_qty":2700,"moisture":0.2,"price":61.0,"amount":164700,"inspector":"质检员甲","reviewer":"复核员甲","invoice":"reverse","annual":1180000,"frequency":4,"bank_name":"虚拟自然人李明轩004","bank_account":"621700000000000004","bank_branch":"中国工商银行虚拟支行","status":"高风险","approval":"待逐项风险处置","paid_amount":0},
+    {"id":"GB202609050005","batch":"PC202609050005","supplier":"X蓝海资源回收有限公司005","id_no":"","supplier_type":"公司","registered":"是","plate":"虚拟车牌-005","goods":"废电机","gross":8200,"tare":3100,"net":5100,"method":"一次过磅","weigher":"过磅员乙","driver":"司机戊","weigh_date":"2026-09-05","weigh_time":"2026-09-05 13:00","inspect_id":"ZJ202609050005","inspect_date":"2026-09-05","inspect_time":"2026-09-05 13:15","inbound_id":"RK202609050005","inbound_date":"2026-09-05","inbound_time":"2026-09-05 13:30","payment_time":"2026-09-05 17:00","spec":"混合电机","grade":"B级","inspect_qty":0,"inbound_qty":5100,"moisture":0.8,"price":5.5,"amount":28050,"inspector":"质检员乙","reviewer":"复核员乙","invoice":"reverse","annual":28050,"frequency":1,"bank_name":"X蓝海资源回收有限公司005","bank_account":"621700000000000005","bank_branch":"中国农业银行虚拟分行","status":"待核验","approval":"无需审批","paid_amount":0},
 ]
 
 
 def build_demo_rows(count=100):
-    """Create deterministic, fully fictitious demo data for a clean install/reset."""
+    """Create deterministic, fully fictitious demo data for a clean install/reset.
+
+    - 90% 自然人 / 10% 公司
+    - 全部使用明显"虚拟"/"X"前缀的姓名/单位/银行/车牌，避免与任何真实记录同名
+    - 时间链：过磅 < 质检 < 入库 < 付款；数量链：净重 - 扣杂 = 入库数量
+    - 一条已付款示例 + 若干风险/审批/待付款示例
+    """
     goods = [("废钢", "重型废钢", 2.65), ("废铜", "紫杂铜", 61.0), ("废铝", "破碎杂铝", 13.2), ("废电机", "混合电机", 5.5)]
     rows = []
     start = datetime(2026, 8, 1, 9, 0)
@@ -59,9 +92,10 @@ def build_demo_rows(count=100):
         date_code = day.strftime("%Y%m%d")
         business_id = f"GB{date_code}{index:03d}"
         batch_id = f"PC{date_code}{index:03d}"
+        # 自然人：index % 10 != 0 → 90%
         company = index % 10 == 0
         supplier_type = "公司" if company else "自然人"
-        supplier = f"X再生企业公司{index:03d}" if company else f"模拟自然人{index:03d}"
+        supplier = _pick_virtual_company_name(index) if company else _pick_virtual_person_name(index)
         identity = "" if company else f"SIM{19800000 + index:08d}"
         goods_name, spec, price = goods[(index - 1) % len(goods)]
         gross = 7000 + (index * 431) % 12000
@@ -74,27 +108,33 @@ def build_demo_rows(count=100):
         inspect_time = day.strftime("%Y-%m-%d 09:15")
         inbound_time = day.strftime("%Y-%m-%d 09:30")
         payment_time = (day + timedelta(days=1)).strftime("%Y-%m-%d 10:00")
-        # Keep a few visible risk examples while most records are clean.
         risk_quantity = index % 17 == 0
         risk_time = index % 23 == 0
         risk_identity = index % 29 == 0 and not company
         risk_invoice = index % 31 == 0
+        bank_branch = VIRTUAL_BANK_BRANCHES[index % len(VIRTUAL_BANK_BRANCHES)]
         row = {
             "id": business_id, "batch": batch_id, "supplier": supplier, "supplier_type": supplier_type,
             "id_no": identity, "registered": "是" if company else "否", "plate": f"虚拟车牌-{index:03d}",
             "goods": goods_name, "gross": gross, "tare": tare, "net": net, "method": "一次过磅" if index % 2 else "二次过磅",
-            "weigher": "模拟过磅员甲", "driver": "模拟司机甲", "weigh_date": day.date().isoformat(),
-            "weigh_time": weigh_time, "inspect_id": f"ZJ{date_code}{index:03d}", "inspect_date": day.date().isoformat(),
+            "weigher": f"虚拟过磅员{['甲', '乙', '丙', '丁'][index % 4]}", "driver": f"虚拟司机{['甲', '乙', '丙', '丁'][index % 4]}",
+            "weigh_date": day.date().isoformat(), "weigh_time": weigh_time,
+            "inspect_id": f"ZJ{date_code}{index:03d}", "inspect_date": day.date().isoformat(),
             "inspect_time": (day - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M") if risk_time else inspect_time,
-            "inbound_id": f"RK{date_code}{index:03d}", "inbound_date": day.date().isoformat(), "inbound_time": inbound_time,
-            "payment_time": payment_time, "spec": spec, "grade": "A级" if index % 3 == 0 else "B级",
+            "inbound_id": f"RK{date_code}{index:03d}", "inbound_date": day.date().isoformat(),
+            "inbound_time": inbound_time, "payment_time": payment_time,
+            "spec": spec, "grade": "A级" if index % 3 == 0 else "B级",
             "inspect_qty": deduct + (35 if risk_quantity else 0), "inbound_qty": inbound_qty,
             "settlement_qty": inbound_qty, "moisture": 0.8,
             "inspect_goods": goods_name, "inbound_goods": goods_name,
-            "price": price, "amount": amount, "inspector": "模拟质检员甲", "reviewer": "模拟复核员甲",
+            "price": price, "amount": amount,
+            "inspector": f"虚拟质检员{['甲', '乙', '丙', '丁'][index % 4]}",
+            "reviewer": f"虚拟复核员{['甲', '乙', '丙', '丁'][index % 4]}",
             "invoice": "none" if risk_invoice else ("reverse" if company or index % 2 else "self"),
-            "annual": 6000000 if index % 37 == 0 else 300000 + index * 7000, "frequency": 8 if index % 19 == 0 else (index % 5 + 1),
-            "bank_name": supplier, "bank_account": f"621700000000{index:06d}", "bank_branch": "虚拟银行支行",
+            "annual": 6000000 if index % 37 == 0 else 300000 + index * 7000,
+            "frequency": 8 if index % 19 == 0 else (index % 5 + 1),
+            "bank_name": supplier, "bank_account": f"621700{(index * 7) % 10000:04d}{(index * 31) % 100000000:08d}",
+            "bank_branch": bank_branch,
             "status": "待核验", "approval": "无需审批", "verified": False, "review_cycle": 1,
             "risk_decisions": {}, "rejection_history": [], "financial_approved": False, "paid_amount": 0,
         }
@@ -109,9 +149,6 @@ def build_demo_rows(count=100):
         ):
             row["status"], row["approval"] = "高风险", "待逐项风险处置"
         else:
-            # A clean import moves straight to its amount-controlled next
-            # stage.  The核验中心 remains the evidence and risk-disposition
-            # view; it is not an unnecessary second approval for clean data.
             row["verified"] = True
             row["status"] = "待审批" if amount >= PAYMENT_THRESHOLD else "待付款"
             row["approval"] = "待财务负责人审批" if amount >= PAYMENT_THRESHOLD else "无需审批"
@@ -119,8 +156,7 @@ def build_demo_rows(count=100):
     return rows
 
 
-# The five hand-written examples remain useful as code documentation, but fresh
-# installs and demo resets use a larger all-fictitious 90/10 dataset.
+# 演示数据：90% 自然人 / 10% 公司，全部虚拟。
 DEMO_ROWS = build_demo_rows(100)
 
 def db():
@@ -791,38 +827,6 @@ def pay(business_id):
     save_business(row, "已付款", "财务负责人已审批" if float(row.get("amount",0) or 0) >= PAYMENT_THRESHOLD else "无需审批")
     return jsonify({"ok":True,"message":"财务付款确认成功，已同步至全局合规台账。"})
 
-@app.get("/api/business/<business_id>/payment-code")
-def payment_code(business_id):
-    denied = require_permission("payment")
-    if denied: return denied
-    rows = {r["id"]: r for r in get_rows()}
-    row = rows.get(business_id)
-    if not row:
-        return jsonify({"error": "业务不存在"}), 404
-    if row["passed"] < 9 or not row["verified"]:
-        return jsonify({"error": "该业务尚未满足付款条件"}), 403
-    import qrcode
-    mode = request.args.get("kind", "trace")
-    endpoint = "payment_landing" if mode == "wechat" else "trace_landing"
-    payload = url_for(endpoint, business_id=row["id"], _external=True)
-    image = qrcode.make(payload)
-    stream = io.BytesIO()
-    image.save(stream, format="PNG")
-    stream.seek(0)
-    return send_file(stream, mimetype="image/png", max_age=0)
-
-@app.get("/trace/<business_id>")
-def trace_landing(business_id):
-    row = get_business(business_id)
-    if not row: return render_template("payment.html", missing=True), 404
-    return render_template("payment.html", row=row, mode="trace", missing=False)
-
-@app.get("/payment/<business_id>")
-def payment_landing(business_id):
-    row = get_business(business_id)
-    if not row: return render_template("payment.html", missing=True), 404
-    return render_template("payment.html", row=row, mode="wechat", missing=False)
-
 @app.post("/api/import")
 def upload():
     denied = require_permission("ingest")
@@ -876,12 +880,12 @@ def standard_template():
     inbound = wb.create_sheet("入库单")
     weigh.append(WEIGH_HEADERS); inspect.append(INSPECT_HEADERS)
     inbound.append(INBOUND_HEADERS)
-    weigh.append(["GB20260905001", "PC20260905001", "2026-09-05 09:00", "自然人示例", "SIM199001010001", "自然人", "否", "虚拟车牌-001", "废铁", 12000, 4000, 8000, "二次过磅", "过磅员姓名", "司机姓名", "自然人示例", "622200000000000009", "虚拟银行支行"])
-    inspect.append(["ZJ20260905001", "GB20260905001", "2026-09-05 09:15", "废铁", "重型废钢", "B级", 100, "1.2%", 2.65, 20935, "质检员姓名", "复核人姓名", "自然人自行代开发票"])
-    inbound.append(["RK20260905001", "GB20260905001", "2026-09-05 09:30", 7900, "仓管员姓名", "2026-09-06 10:00"])
+    weigh.append(["GB20260905001", "PC20260905001", "2026-09-05 09:00", "虚拟赵建国示例", "SIM199001010001", "自然人", "否", "虚拟车牌-001", "废铁", 12000, 4000, 8000, "二次过磅", "虚拟过磅员甲", "虚拟司机甲", "虚拟赵建国示例", "621700000000009999", "中国工商银行虚拟支行"])
+    inspect.append(["ZJ20260905001", "GB20260905001", "2026-09-05 09:15", "废铁", "重型废钢", "B级", 100, "1.2%", 2.65, 20935, "虚拟质检员甲", "虚拟复核员甲", "自然人自行代开发票"])
+    inbound.append(["RK20260905001", "GB20260905001", "2026-09-05 09:30", 7900, "虚拟仓管员甲", "2026-09-06 10:00"])
     for ws in (weigh, inspect, inbound):
         ws.freeze_panes = "A2"; ws.auto_filter.ref = ws.dimensions
-        for cell in ws[1]: cell.font = __import__('openpyxl').styles.Font(bold=True, color="FFFFFF"); cell.fill = __import__('openpyxl').styles.PatternFill("solid", fgColor="167A59")
+        for cell in ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="167A59")
         for col in ws.columns: ws.column_dimensions[col[0].column_letter].width = 18
     stream=io.BytesIO(); wb.save(stream); stream.seek(0)
     local_path = os.path.join(LOCAL_TEMPLATE_DIR, "绿循智审_本地同步模板.xlsx")
@@ -965,7 +969,7 @@ def export():
     ws.auto_filter.ref = ws.dimensions
     ws.freeze_panes = "A4"
     for column_index in range(1, ws.max_column + 1):
-        ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(column_index)].width = max(ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(column_index)].width or 0, 15)
+        ws.column_dimensions[get_column_letter(column_index)].width = max(ws.column_dimensions[get_column_letter(column_index)].width or 0, 15)
     stream=io.BytesIO(); wb.save(stream); stream.seek(0)
     return send_file(stream,as_attachment=True,download_name="绿循智审_合规台账.xlsx",mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
