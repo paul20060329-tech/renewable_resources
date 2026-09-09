@@ -80,6 +80,12 @@
       </div>
       <div class="process-strip"><div><b>01</b>填写模板</div><span>→</span><div><b>02</b>保存或上传</div><span>→</span><div><b>03</b>自动匹配入库单</div><span>→</span><div><b>04</b>执行规则核验</div></div>
 
+      <div class="upload-grid">
+        <form class="upload-card" id="importForm"><div class="upload-icon">⇧</div><h2>Excel 批量导入</h2><p>标准模板包含“过磅单”“质检单”“入库单”三个工作表；也支持指定的“合规台账”模板。</p><input id="files" type="file" accept=".xlsx" multiple><label class="secondary" for="files">选择 Excel 文件</label><button class="primary" type="submit">开始导入并运行规则</button><div id="importResult"></div></form>
+        <section class="surface template-card"><span class="caption">FIELD CONTRACT</span><h2>本地自动同步</h2><div class="schema"><div><b>下载后即可编辑</b><p>点击下载后，系统会在应用目录的 local_templates 文件夹保留一份副本。</p></div><div><b>保存后自动更新</b><p>修改并保存 Excel 后，平台轮询会自动同步；也可点击“同步本地模板”立即检查。</p></div><div><b>三个工作表或合规台账</b><p>标准模板的过磅单新增银行卡信息；指定合规台账模板也可直接导入并拆分关联单据。</p></div></div><p class="tip">请保持模板字段名不变。数量规则为净重 - 扣杂 = 入库数量，时间必须依次早于付款时间。</p></section>
+      </div>
+      <section class="surface import-history"><div class="surface-head"><div><span class="caption">IMPORT HISTORY</span><h2>最近导入记录</h2></div><button class="secondary" onclick="clearImportHistory()">清除记录</button></div><div id="importHistory"></div></section>
+
       <section class="surface manual-entry">
         <div class="surface-head"><div><span class="caption">MANUAL ENTRY</span><h2>手动录入过磅信息</h2><p class="section-note">编号和批次号由系统自动生成，示例字段请使用虚拟数据。</p></div><span class="security-pill">SHA-256 已启用</span></div>
         <form id="manualForm" class="manual-form">
@@ -102,12 +108,6 @@
         </form>
         <div class="hash-explain"><b>数据安全留痕</b><span>系统会对编号、批次和过磅字段生成 SHA-256 指纹，便于发现数据被修改。</span></div>
       </section>
-
-      <div class="upload-grid">
-        <form class="upload-card" id="importForm"><div class="upload-icon">⇧</div><h2>Excel 批量导入</h2><p>标准模板包含“过磅单”“质检单”“入库单”三个工作表；也支持指定的“合规台账”模板。</p><input id="files" type="file" accept=".xlsx" multiple><label class="secondary" for="files">选择 Excel 文件</label><button class="primary" type="submit">开始导入并运行规则</button><div id="importResult"></div></form>
-        <section class="surface template-card"><span class="caption">FIELD CONTRACT</span><h2>本地自动同步</h2><div class="schema"><div><b>下载后即可编辑</b><p>点击下载后，系统会在应用目录的 local_templates 文件夹保留一份副本。</p></div><div><b>保存后自动更新</b><p>修改并保存 Excel 后，平台轮询会自动同步；也可点击“同步本地模板”立即检查。</p></div><div><b>三个工作表或合规台账</b><p>标准模板的过磅单新增银行卡信息；指定合规台账模板也可直接导入并拆分关联单据。</p></div></div><p class="tip">请保持模板字段名不变。数量规则为净重 - 扣杂 = 入库数量，时间必须依次早于付款时间。</p></section>
-      </div>
-      <section class="surface import-history"><div class="surface-head"><div><span class="caption">IMPORT HISTORY</span><h2>最近导入记录</h2></div><button class="secondary" onclick="clearImportHistory()">清除记录</button></div><div id="importHistory"></div></section>
     </section>
 
     <section id="verify" class="view" data-permission="verify" {% if 'verify' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
