@@ -16,8 +16,8 @@
       <section class="panel"><h1>业务不存在</h1><p class="sub">该二维码可能已失效，请回到付款中心重新获取。</p></section>
     {% else %}
       <section class="panel {{ 'trace' if mode == 'trace' else 'wechat' }}">
-        <div class="eyebrow">{{ 'TRACEABILITY RECORD' if mode == 'trace' else 'WECHAT VIRTUAL PAYMENT' }}</div>
-        <h1>{{ '溯源码核验' if mode == 'trace' else '微信虚拟付款界面' }}</h1>
+        <div class="eyebrow">VIRTUAL BANK ACCOUNT CHECK</div>
+        <h1>收款银行卡核验</h1>
         <p class="sub">业务编号 {{ row.id }} · {{ row.supplier }}</p>
         <div class="amount">¥{{ '%.2f'|format(row.amount|float) }}</div>
         <div class="grid">
@@ -26,11 +26,8 @@
           <div class="item"><small>核验状态</small><b>{{ row.verification_status }}</b></div>
           <div class="item"><small>付款状态</small><b>{{ row.status }}</b></div>
         </div>
-        {% if mode == 'trace' %}
-          <div class="notice">该页面用于核对业务来源、金额和核验状态。信息来自绿循智审合规台账，供收付款双方留存。</div>
-        {% else %}
-          <div class="notice">这是演示用微信虚拟付款界面。请由财务人员在付款中心确认后完成付款，二维码本身不会直接发起真实转账。</div>
-        {% endif %}
+        <div class="item account"><small>收款虚拟银行卡号</small><b>{{ row.bank_account_masked or row.bank_account or '未填写' }}</b></div>
+        <div class="notice">该页面仅用于核对收款账户、金额和核验状态。付款仍需由授权人员在付款中心确认，不会发起真实转账。</div>
       </section>
     {% endif %}
   </main>

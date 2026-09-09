@@ -1,36 +1,231 @@
-let state={records:[],filter:'all',admin:null};
-const $=s=>document.querySelector(s);
-const money=n=>'¥'+Number(n||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
-const names={overview:'数据总览',ingest:'单据录入与导入',verify:'核验中心',approval:'风险审批',payment:'付款中心',ledger:'合规台账',admin:'后台管理'};
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function toast(t){$('#toast').textContent=t;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2800)}
-function showView(id){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===id));document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===id));$('#breadcrumb').innerHTML=`<span>绿循智审</span><b>${names[id]||id}</b>`;history.replaceState(null,'','#'+id)}
-document.querySelectorAll('nav a').forEach(a=>a.onclick=e=>{e.preventDefault();showView(a.dataset.view)});
-async function loadData(){let r=await fetch('/api/dashboard');if(r.status===401)return location.href='/login';state=await r.json();render();loadAdmin()}
-async function loadAdmin(){let r=await fetch('/api/admin');if(r.ok){state.admin=await r.json();renderAdmin()}}
-function render(){let s=state.stats,ratio=s.total?Math.round(s.passed/s.total*100):0;$('#stats').innerHTML=[['已入账业务',s.total,'累计业务台账'],['规则全通过',s.passed,`${ratio}% 规则通过`],['风险待处置',s.risk,'需逐项手动处理'],['交易总金额',money(s.amount),'本期采购规模']].map((x,i)=>`<div class="stat"><div class="stat-top"><span>${x[0]}</span><span>${['▦','✓','!','¥'][i]}</span></div><b>${x[1]}</b><small>${x[2]}</small></div>`).join('');$('#riskNav').textContent=s.risk;renderCharts();renderQueue();renderRecords();renderApproval();renderPayments();renderLedger();renderImports()}
-function renderCharts(){let vals=[.32,.48,.41,.61,.54,.74,.92],pts=vals.map((v,i)=>`${i*16.66+1},${100-v*86}`).join(' ');$('#trendChart').innerHTML=`<svg viewBox="0 0 101 105" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#167a59" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;let fail={};state.records.forEach(r=>r.checks.filter(c=>!c.passed).forEach(c=>fail[c.name]=(fail[c.name]||0)+1));let total=Object.values(fail).reduce((a,b)=>a+b,0)||1;$('#riskChart').innerHTML=Object.entries(fail).map(([k,v])=>`<div class="risk-bar"><div><span>${esc(k)}</span><b>${v} 笔</b></div><i><em style="width:${v/total*100}%"></em></i></div>`).join('')||'<div class="empty">当前没有规则风险命中</div>';let s=state.stats,stages=[['已导入',s.total],['已核验',state.records.filter(r=>r.verified).length],['待处置',state.records.filter(r=>r.passed<9).length],['已付款',s.paid]];$('#funnel').innerHTML=stages.map(x=>`<div class="funnel-line"><span>${x[0]}</span><i style="width:${Math.max(22,x[1]/Math.max(s.total,1)*100)}%"></i><b>${x[1]} 笔</b></div>`).join('')}
-function renderQueue(){let rows=state.records.filter(r=>r.passed<9&&r.status!=='审批驳回');$('#riskQueue').innerHTML=rows.map(r=>`<div class="queue-item"><i class="risk-pip"></i><div class="queue-main"><b>${esc(r.id)} · ${esc(r.supplier)}</b><p>${esc(r.goods)} · ${r.checks.filter(c=>!c.passed).map(c=>esc(c.name)).slice(0,2).join('、')}</p></div><span class="tag danger">${esc(r.approval)}</span><button class="text-button" onclick="showView('approval')">处置 →</button></div>`).join('')||'<div class="queue-item">没有待处置风险业务</div>'}
-function renderRecords(){let q=($('#search')?.value||'').toLowerCase(),rows=state.records.filter(r=>state.filter==='all'||(state.filter==='risk'?r.passed<9:state.filter==='passed'?r.passed===9:!r.verified)).filter(r=>(r.id+r.batch+r.supplier).toLowerCase().includes(q));$('#records').innerHTML=rows.map(r=>{let action=r.passed===9&&!r.verified?`<button class="primary compact" onclick="verifyBiz('${r.id}')">确认已核验</button>`:`<button class="view-link" onclick="openDrawer('${r.id}')">证据详情 →</button>`;return `<tr><td><div class="business-cell"><b>${esc(r.id)}</b><small>${esc(r.batch)} · ${esc(r.supplier)} · ${esc(r.plate)}</small></div></td><td>${esc(r.goods)}<small class="block">${money(r.amount)}</small></td><td><div class="rule-dots">${r.checks.map(c=>`<i class="rule-dot ${c.passed?'':'fail'}" title="${esc(c.name)}">${c.passed?'✓':'×'}</i>`).join('')}</div></td><td><span class="tag ${r.passed===9?'success':'danger'}">${r.passed===9?'规则全通过':`${9-r.passed} 项异常`}</span></td><td><span class="tag ${r.verified?'success':r.passed===9?'warning':'neutral'}">${esc(r.status)}</span></td><td>${action}</td></tr>`}).join('')||'<tr><td colspan="6">暂无匹配记录</td></tr>'}
-function renderApproval(){let rows=state.records.filter(r=>r.passed<9&&r.status!=='已付款');$('#approvalCount').textContent=`${rows.filter(r=>r.approval.includes('待')||r.status==='高风险').length} 笔待处置`;$('#approvalRows').innerHTML=rows.map(r=>{let failed=r.checks.filter(c=>!c.passed),handled=failed.filter(c=>r.risk_decisions?.[c.code]?.decision==='rejected').length;return `<article class="approval-card"><div class="approval-top"><div><span class="caption">RISK CASE · ${esc(r.id)}</span><h2>${esc(r.supplier)} · ${esc(r.goods)}</h2><p>${money(r.amount)} · ${Number(r.net).toLocaleString()} Kg · ${esc(r.weigh_date)} · 第 ${r.review_cycle||1} 次核验</p></div><span class="tag danger">${9-r.passed} 项异常</span></div><div class="risk-reasons">${failed.map(c=>`<span class="risk-chip ${r.risk_decisions?.[c.code]?.decision==='rejected'?'handled':''}">! ${esc(c.code)} ${esc(c.name)} ${r.risk_decisions?.[c.code]?.decision==='rejected'?'· 已驳回':''}</span>`).join('')}</div><p class="approval-progress">已手动驳回 ${handled}/${failed.length} 项风险依据${r.status==='审批驳回'?'，等待补件修改':''}</p><div class="approval-actions"><button class="secondary" onclick="openDrawer('${r.id}')">查看核验依据</button>${failed.filter(c=>r.risk_decisions?.[c.code]?.decision!=='rejected').map(c=>`<button class="reject" onclick="rejectRisk('${r.id}','${c.code}')">驳回 ${c.code}</button>`).join('')}${r.status==='审批驳回'?`<button class="primary" onclick="openEdit('${r.id}')">补件并再次审核</button>`:''}</div></article>`}).join('')||'<div class="empty-panel">当前没有待处置风险业务。风险业务已逐项处理或已完成补件。</div>'}
-function renderPayments(){let rows=state.records.filter(r=>r.status!=='已付款'&&r.passed===9&&r.verified);$('#paymentCount').textContent=`${rows.length} 笔待确认`;$('#paymentRows').innerHTML=rows.map(r=>`<div class="payment-row"><div class="payment-qrs"><div><img class="payment-qr" src="/api/business/${encodeURIComponent(r.id)}/payment-code?kind=trace"><small>溯源码</small></div><div><img class="payment-qr" src="/api/business/${encodeURIComponent(r.id)}/payment-code?kind=wechat"><small>微信虚拟付款码</small></div></div><div class="grow"><b>${esc(r.id)} · ${esc(r.supplier)}</b><p>${esc(r.goods)} · ${esc(r.verification_status)}</p></div><b>${money(r.amount)}</b><button class="secondary" onclick="previewQR('${r.id}','trace')">查看溯源码</button><button class="secondary" onclick="previewQR('${r.id}','wechat')">查看微信码</button><button class="primary" onclick="pay('${r.id}')">确认付款</button></div>`).join('')||'<div class="payment-row">暂无已核验且可付款业务</div>'}
-function shortHash(value){return value?`${value.slice(0,10)}...${value.slice(-8)}`:'待生成'}
-function renderLedger(){ $('#ledgerRows').innerHTML=state.records.map(r=>`<tr><td><b>${esc(r.id)}</b></td><td>${esc(r.batch)}</td><td>${esc(r.supplier)}</td><td>${esc(r.goods)}</td><td>${Number(r.net).toLocaleString()} Kg</td><td><span class="hash-text" title="${esc(r.integrity_hash)}">SHA-256 ${shortHash(r.integrity_hash)}</span></td><td><span class="tag ${r.passed===9?'success':'danger'}">${r.passed}/9</span></td><td>${esc(r.verification_status)}</td><td>${esc(r.approval)}</td><td>${esc(r.status)}</td></tr>`).join('');$('#ledgerNote').textContent=`当前共归档 ${state.records.length} 笔业务 · 哈希指纹持续留痕`}
-function renderImports(){$('#importHistory').innerHTML=(state.imports||[]).map(x=>`<div class="import-row"><span class="import-file">XLSX</span><div><b>${esc(x.filename)}</b><p>${esc(x.created_at.replace('T',' '))} · ${x.rows_count} 笔业务</p></div><span class="tag success">${esc(x.result)}</span></div>`).join('')||'<div class="import-row">尚未导入新文件，可下载模板进行实验。</div>'}
-function renderAdmin(){if(!state.admin)return;let a=state.admin;$('#adminSummary').innerHTML=[['应用后端',a.backend],['数据存储',a.storage],['规则数量',`${a.rules.length} 项固定规则`]].map(x=>`<div class="admin-stat"><small>${x[0]}</small><b>${x[1]}</b><span>运行正常</span></div>`).join('');$('#adminRules').innerHTML=a.rules.map(x=>`<div class="admin-row"><div><b>${x.code} · ${x.name}</b><p>${x.owner} · 最近更新 ${x.updated}</p></div><span class="tag success">启用</span></div>`).join('');$('#adminAccounts').innerHTML=a.accounts.map(x=>`<div class="admin-row"><div><b>${x.name}</b><p>账号 ${x.account} · ${x.role}</p></div><span class="tag success">${x.status}</span></div>`).join('')}
-async function verifyBiz(id){let r=await fetch(`/api/business/${encodeURIComponent(id)}/verify`,{method:'POST'}),d=await r.json();toast(d.message||d.error);if(r.ok)loadData()}
-async function rejectRisk(id,code){let r=await fetch(`/api/business/${encodeURIComponent(id)}/risk/${code}/reject`,{method:'POST'}),d=await r.json();toast(d.message||d.error);if(r.ok)loadData()}
-async function pay(id){let r=await fetch(`/api/business/${encodeURIComponent(id)}/pay`,{method:'POST'}),d=await r.json();toast(d.message||d.error);if(r.ok)loadData()}
-function previewQR(id,kind='trace'){let r=state.records.find(x=>x.id===id),label=kind==='wechat'?'微信虚拟付款码':'溯源码';$('#drawerContent').innerHTML=`<p class="eyebrow dark">PAYMENT CENTER</p><h2>${esc(r.id)} ${label}</h2><p class="drawer-sub">${esc(r.supplier)} · ${money(r.amount)}</p><div class="qr-preview"><img src="/api/business/${encodeURIComponent(id)}/payment-code?kind=${kind}"><b>${label} · 扫码打开核验界面</b><span>该二维码只对已核验业务生成</span></div>`;$('#drawer').classList.add('open')}
-function editFields(r){return [['batch','货物批次号'],['inspect_id','质检单编号'],['id_no','身份证号'],['registered','个体户登记标记 (是/否)'],['plate','车牌号'],['goods','货物品名'],['gross','毛重 (Kg)'],['tare','皮重 (Kg)'],['inspect_date','质检日期'],['grade','质检等级 (A级/B级/C级)'],['inspect_qty','质检数量 (Kg)'],['price','计价单价'],['amount','计价金额'],['weigher','过磅员签字'],['inspector','质检员签字'],['reviewer','复核人签字'],['invoice','票据方式 (reverse/self/none)'],['frequency','近30日交易笔数'],['annual','年度累计金额']].map(([k,l])=>`<div class="form-field"><label>${l}</label><input name="${k}" value="${esc(r[k])}"></div>`).join('')}
-function openEdit(id){let r=state.records.find(x=>x.id===id);$('#drawerContent').innerHTML=`<p class="eyebrow dark">SUPPLEMENT · ${esc(r.id)}</p><h2>补件修改后再次审核</h2><p class="drawer-sub">只修改已驳回风险对应字段，提交后系统会清空旧决定并重新执行 9 项规则。</p><form id="editForm" class="edit-form">${editFields(r)}<div class="manual-actions"><button class="primary" type="submit">提交补件并重新审核</button></div></form>`;$('#drawer').classList.add('open');$('#editForm').onsubmit=async e=>{e.preventDefault();let data=Object.fromEntries(new FormData(e.target).entries()),res=await fetch(`/api/business/${encodeURIComponent(id)}/resubmit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),d=await res.json();toast(d.message||d.error);if(res.ok){closeDrawer();loadData()}}}
-function openDrawer(id){let r=state.records.find(x=>x.id===id);let failed=r.checks.filter(c=>!c.passed),action=failed.length?`<div class="decision-box"><b>逐项风险手检</b><p>每个红色风险都必须单独驳回。全部驳回后，业务退回补件；修改后请再次提交审核。</p><div>${failed.filter(c=>r.risk_decisions?.[c.code]?.decision!=='rejected').map(c=>`<button class="reject" onclick="rejectRisk('${r.id}','${c.code}')">驳回 ${c.code}</button>`).join('')}${r.status==='审批驳回'?`<button class="primary" onclick="openEdit('${r.id}')">补件并再次审核</button>`:''}</div></div>`:'';let verifyAction=r.passed===9&&!r.verified?`<div class="decision-box verify-box"><b>规则全部通过</b><p>请人工确认已核对全部资料。确认后状态变为“已核验”，付款中心才会生成二维码。</p><div><button class="primary" onclick="verifyBiz('${r.id}')">确认已核验</button></div></div>`:'';$('#drawerContent').innerHTML=`<p class="eyebrow dark">BUSINESS EVIDENCE · ${esc(r.id)}</p><h2>${esc(r.supplier)} · ${esc(r.goods)}</h2><p class="drawer-sub">过磅 ${esc(r.weigh_date)} · 质检 ${esc(r.inspect_date)} · ${esc(r.plate)}</p><div class="detail-summary"><span class="tag ${r.passed===9?'success':'danger'}">${r.passed}/9 通过</span><span class="tag ${r.verified?'success':'warning'}">${esc(r.verification_status)}</span><span class="tag neutral">${esc(r.approval)}</span></div><div class="security-detail"><b>安全指纹已记录</b><span>算法：${r.hash_algorithm||'SHA-256'}</span><small>整单指纹：${esc(r.integrity_hash)}</small></div><div class="source-grid"><div><small>过磅单</small><b>${esc(r.id)}</b><p>毛重 ${r.gross} Kg · 皮重 ${r.tare} Kg · 净重 ${r.net} Kg</p></div><div><small>质检单</small><b>${esc(r.inspect_id||'缺失')}</b><p>${esc(r.spec||'未填写')} · ${esc(r.grade||'未填写')} · ${r.inspect_qty} Kg</p></div></div><h3>规则执行证据</h3>${r.checks.map(c=>`<div class="rule-detail"><div class="rule-detail-head"><i class="rule-dot ${c.passed?'':'fail'}">${c.passed?'✓':'×'}</i><b>${c.code} ${esc(c.name)}</b><span>${c.passed?'通过':r.risk_decisions?.[c.code]?.decision==='rejected'?'已驳回':'待手检'}</span></div><p>${esc(c.reason)}</p></div>`).join('')}${action}${verifyAction}`;$('#drawer').classList.add('open')}
-function closeDrawer(){$('#drawer').classList.remove('open')}
-document.querySelectorAll('.filter-row button.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter-row button.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.filter=b.dataset.filter;renderRecords()});
+const PAYMENT_THRESHOLD=50000;
+const RULE_COUNT=9;
+let state={records:[],filter:'all',admin:null,permissions:[],stats:{},imports:[]};
+let loading=false;
+
+const $=(selector,root=document)=>root.querySelector(selector);
+const $$=(selector,root=document)=>Array.from(root.querySelectorAll(selector));
+const money=value=>'¥'+Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const number=value=>Number(value||0).toLocaleString('zh-CN',{maximumFractionDigits:2});
+const esc=value=>String(value??'').replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+const escAttr=value=>esc(value).replace(/\r?\n/g,' ');
+// JSON plus HTML escaping keeps inline action arguments safe for imported identifiers.
+const idArg=value=>escAttr(JSON.stringify(String(value??'')));
+const domId=(prefix,value)=>`${prefix}-${String(value??'').replace(/[^a-zA-Z0-9_-]/g,'_')}`;
+const names={overview:'数据总览',ingest:'单据录入与导入',verify:'核验中心',approval:'付款审批',payment:'付款中心',ledger:'合规台账',admin:'后台管理'};
+
+function hasPermission(permission){return state.permissions.includes(permission)}
+function ruleCount(record){return Array.isArray(record?.checks)&&record.checks.length?record.checks.length:RULE_COUNT}
+function passedCount(record){return Number(record?.passed||0)}
+function isRisk(record){return passedCount(record)<ruleCount(record)&&record?.status!=='已付款'}
+function isPassed(record){return passedCount(record)>=ruleCount(record)}
+function displayStage(record){
+  if(record?.current_stage)return record.current_stage;
+  if(record?.status==='已付款')return '已付款';
+  if(isRisk(record))return record.status==='审批驳回'?'审批驳回':'风险待驳回';
+  if(!record?.verified)return '待核验';
+  if(Number(record.amount||0)>=PAYMENT_THRESHOLD&&!record.financial_approved)return '待审批';
+  return '待付款';
+}
+function statusClass(record){
+  const stage=displayStage(record);
+  if(stage==='已付款'||stage==='待付款')return 'success';
+  if(stage==='待审批')return 'warning';
+  if(isRisk(record))return 'danger';
+  return 'neutral';
+}
+function toast(message){const element=$('#toast');if(!element)return;element.textContent=message||'';element.classList.add('show');setTimeout(()=>element.classList.remove('show'),2600)}
+
+function showView(id){
+  const requested=names[id]?id:'overview';
+  const target=hasPermission(requested)?requested:(hasPermission('overview')?'overview':state.permissions[0]);
+  if(!target){toast('当前账号没有可访问的板块');return}
+  if(requested!==target)toast('当前账号无权访问此板块');
+  $$('.view').forEach(view=>{view.classList.toggle('active',view.id===target);view.hidden=!hasPermission(view.id)});
+  $$('nav a').forEach(link=>link.classList.toggle('active',link.dataset.view===target));
+  if($('#breadcrumb'))$('#breadcrumb').innerHTML=`<span>绿循智审</span><b>${names[target]||target}</b>`;
+  history.replaceState(null,'','#'+target);
+}
+
+function applyPermissions(){
+  $$('[data-permission]').forEach(element=>{const allowed=hasPermission(element.dataset.permission);element.hidden=!allowed;element.setAttribute('aria-hidden',String(!allowed))});
+  $$('.view').forEach(view=>{const allowed=hasPermission(view.id);view.hidden=!allowed;if(!allowed)view.classList.remove('active')});
+}
+
+async function readJson(response){
+  let data={};
+  try{data=await response.json()}catch(error){data={error:'服务器返回了无效响应'}}
+  if(response.status===401){location.href='/login';return {ok:false,data}}
+  return {ok:response.ok,data}
+}
+async function loadData(){
+  if(loading)return;
+  loading=true;
+  try{
+    const response=await fetch('/api/dashboard',{headers:{Accept:'application/json'}});
+    const result=await readJson(response);
+    if(!result.ok){if(response.status!==401)toast(result.data.error||'数据加载失败');return}
+    state={...state,...result.data,permissions:Array.isArray(result.data.permissions)?result.data.permissions:state.permissions};
+    applyPermissions();
+    render();
+    if(hasPermission('admin'))await loadAdmin();
+    const hash=location.hash.slice(1);
+    showView(hash&&names[hash]?hash:'overview');
+  }catch(error){console.error(error);toast('数据加载失败，请稍后重试')}finally{loading=false}
+}
+async function loadAdmin(){
+  try{const response=await fetch('/api/admin',{headers:{Accept:'application/json'}});const result=await readJson(response);if(result.ok){state.admin=result.data;renderAdmin()}}catch(error){console.error(error)}
+}
+
+function render(){
+  const stats=state.stats||{};
+  const total=Number(stats.total||state.records.length||0);
+  $('#stats').innerHTML=[['已导入业务',total],['规则全通过',Number(stats.passed||0)],['风险待处置',Number(stats.risk||0)],['交易总金额',money(stats.amount||0)]].map(item=>`<div class="stat"><div class="stat-top"><span>${item[0]}</span></div><b>${item[1]}</b></div>`).join('');
+  if($('#riskNav'))$('#riskNav').textContent=Number(stats.risk||0);
+  if($('#approvalNav'))$('#approvalNav').textContent=state.records.filter(record=>isRisk(record)||(displayStage(record)==='待审批')).length;
+  if($('#paymentNav'))$('#paymentNav').textContent=state.records.filter(record=>paymentEligible(record)).length;
+  renderCharts();renderQueue();renderRecords();renderApproval();renderPayments();renderLedger();renderImports();
+}
+
+function renderCharts(){
+  const records=state.records||[];
+  const paidByDate={};
+  records.filter(record=>record.status==='已付款').forEach(record=>{const date=String(record.payment_time||record.weigh_date||'').slice(5,10)||'--';paidByDate[date]=(paidByDate[date]||0)+Number(record.paid_amount||0)});
+  const dates=Object.keys(paidByDate).sort().slice(-7);
+  const values=dates.map(date=>paidByDate[date]);
+  const max=Math.max(...values,1);
+  if($('#trendChart'))$('#trendChart').innerHTML=dates.length?`<svg viewBox="0 0 101 105" preserveAspectRatio="none" aria-label="已确认付款金额趋势"><polyline points="${values.map((value,index)=>`${dates.length===1?50:index*100/(dates.length-1)},${100-(value/max*86)}`).join(' ')}" fill="none" stroke="#167a59" stroke-width="2" vector-effect="non-scaling-stroke"></polyline></svg>`:'<div class="empty">暂无已确认付款数据</div>';
+  if($('#chartLabels'))$('#chartLabels').innerHTML=dates.map(date=>`<span>${esc(date)}</span>`).join('');
+  const failures={};records.forEach(record=>(record.checks||[]).filter(check=>!check.passed).forEach(check=>{failures[check.name]=(failures[check.name]||0)+1}));
+  const totalFailures=Object.values(failures).reduce((sum,value)=>sum+value,0)||1;
+  if($('#riskChart'))$('#riskChart').innerHTML=Object.entries(failures).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([name,count])=>`<div class="risk-bar"><div><span>${esc(name)}</span><b>${count} 笔</b></div><i><em style="width:${count/totalFailures*100}%"></em></i></div>`).join('')||'<div class="empty">当前没有规则风险命中</div>';
+  const totalRecords=records.length||1;
+  if($('#funnel'))$('#funnel').innerHTML=[['已导入',records.length],['已核验',records.filter(record=>record.verified).length],['待审批',records.filter(record=>displayStage(record)==='待审批').length],['已付款',records.filter(record=>record.status==='已付款').length]].map(item=>`<div class="funnel-line"><span>${item[0]}</span><i style="width:${Math.max(8,item[1]/totalRecords*100)}%"></i><b>${item[1]} 笔</b></div>`).join('');
+}
+
+function renderQueue(){
+  const rows=state.records.filter(record=>isRisk(record));
+  if(!$('#riskQueue'))return;
+  $('#riskQueue').innerHTML=rows.map(record=>`<div class="queue-item"><i class="risk-pip"></i><div class="queue-main"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.goods)} · ${(record.checks||[]).filter(check=>!check.passed).map(check=>esc(check.name)).slice(0,2).join('、')}</p></div><span class="tag danger">${esc(displayStage(record))}</span>${hasPermission('approval')?`<button class="text-button" onclick="showView('approval')">处置 →</button>`:hasPermission('verify')?`<button class="text-button" onclick="openDrawer(${idArg(record.id)})">处置 →</button>`:''}</div>`).join('')||'<div class="queue-item">没有待处理业务</div>';
+}
+
+function recordMatchesFilter(record){
+  if(state.filter==='risk')return isRisk(record);
+  if(state.filter==='passed')return isPassed(record);
+  if(state.filter==='pending')return !record.verified&&record.status!=='已付款';
+  return true;
+}
+function renderRecords(){
+  if(!$('#records'))return;
+  const query=($('#search')?.value||'').trim().toLowerCase();
+  const rows=state.records.filter(record=>recordMatchesFilter(record)).filter(record=>[record.id,record.batch,record.supplier].join(' ').toLowerCase().includes(query));
+  $('#records').innerHTML=rows.map(record=>{
+    const total=ruleCount(record),passed=passedCount(record);
+    const rejectAction=isRisk(record)&&(hasPermission('verify')||hasPermission('approval'))?`<button class="reject compact" onclick="rejectAll(${idArg(record.id)})">一键驳回</button>`:'';
+    const action=passed>=total&&!record.verified&&hasPermission('verify')?`<button class="primary compact" onclick="verifyBiz(${idArg(record.id)})">确认已核验</button>`:`<button class="view-link" onclick="openDrawer(${idArg(record.id)})">查看详情</button>`;
+    return `<tr><td><div class="business-cell"><b>${esc(record.id)}</b><small>${esc(record.batch)} · ${esc(record.supplier)} · ${esc(record.supplier_type||'自然人')}</small></div></td><td>${esc(record.goods)}<small class="block">${money(record.amount)}</small></td><td><div class="rule-dots">${(record.checks||[]).map(check=>`<i class="rule-dot ${check.passed?'':'fail'}" title="${escAttr(check.name)}">${check.passed?'✓':'×'}</i>`).join('')}</div></td><td><span class="tag ${passed>=total?'success':'danger'}">${passed>=total?'规则全通过':`${total-passed} 项异常`}</span></td><td><span class="tag ${statusClass(record)}">${esc(displayStage(record))}</span></td><td>${rejectAction}${action}</td></tr>`;
+  }).join('')||'<tr><td colspan="6">暂无匹配记录</td></tr>';
+}
+
+function approvalRows(){return state.records.filter(record=>isRisk(record)||(isPassed(record)&&record.verified&&Number(record.amount||0)>=PAYMENT_THRESHOLD&&!record.financial_approved&&record.status!=='已付款'))}
+function renderApproval(){
+  if(!$('#approvalRows'))return;
+  const rows=approvalRows();
+  if($('#approvalCount'))$('#approvalCount').textContent=`${rows.length} 笔待处置`;
+  $('#approvalRows').innerHTML=rows.map(record=>{
+    const risk=isRisk(record), failed=(record.checks||[]).filter(check=>!check.passed), handled=failed.filter(check=>record.risk_decisions?.[check.code]?.decision==='rejected').length;
+    const riskInfo=risk?`<div class="risk-reasons">${failed.map(check=>`<span class="risk-chip ${record.risk_decisions?.[check.code]?.decision==='rejected'?'handled':''}">! ${esc(check.code)} ${esc(check.name)} ${record.risk_decisions?.[check.code]?.decision==='rejected'?'· 已驳回':''}</span>`).join('')}</div><p class="approval-progress">已手动驳回 ${handled}/${failed.length} 项风险依据${record.status==='审批驳回'?'，等待补件修改':''}</p>`:'';
+    const canHandleRisk=hasPermission('approval')||hasPermission('verify');
+    const rejectAction=risk&&canHandleRisk&&record.status!=='审批驳回'?`<button class="reject" onclick="rejectAll(${idArg(record.id)})">一键驳回</button>`:'';
+    const individualActions=risk&&canHandleRisk?failed.filter(check=>record.risk_decisions?.[check.code]?.decision!=='rejected').map(check=>`<button class="reject" onclick="rejectRisk(${idArg(record.id)},${idArg(check.code)})">驳回 ${esc(check.code)}</button>`).join(''):'';
+    const editAction=record.status==='审批驳回'&&hasPermission('admin')?`<button class="primary" onclick="openEdit(${idArg(record.id)})">补件并再次审核</button>`:'';
+    const approveAction=!risk&&hasPermission('approval')&&!record.financial_approved?`<button class="primary" onclick="approveBiz(${idArg(record.id)})">财务审批</button>`:'';
+    return `<article class="approval-card"><div class="approval-top"><div><span class="caption">${risk?'RISK CASE':'AMOUNT REVIEW'} · ${esc(record.id)}</span><h2>${esc(record.supplier)} · ${esc(record.goods)}</h2><p>${money(record.amount)} · ${number(record.net)} Kg · ${esc(displayStage(record))}</p></div><span class="tag ${risk?'danger':'warning'}">${risk?`${failed.length} 项异常`:'待财务判断'}</span></div>${riskInfo}<div class="approval-actions"><button class="secondary" onclick="openDrawer(${idArg(record.id)})">查看核验依据</button>${rejectAction}${individualActions}${editAction}${approveAction}</div></article>`;
+  }).join('')||'<div class="empty-panel">当前没有待处置业务。</div>';
+}
+
+function paymentEligible(record){return isPassed(record)&&Boolean(record.verified)&&record.status!=='已付款'&&(Number(record.amount||0)<PAYMENT_THRESHOLD||Boolean(record.financial_approved))}
+function localMask(value){const text=String(value||'');return text.length>8?`${text.slice(0,4)}****${text.slice(-4)}`:(text||'未填写')}
+function renderPayments(){
+  if(!$('#paymentRows'))return;
+  const rows=state.records.filter(record=>paymentEligible(record));
+  if($('#paymentCount'))$('#paymentCount').textContent=`${rows.length} 笔待确认`;
+  $('#paymentRows').innerHTML=rows.map(record=>{const masked=record.bank_account_masked||localMask(record.bank_account);return `<div class="payment-row"><div class="grow"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.goods)} · ${money(record.amount)} · ${esc(displayStage(record))}</p><div class="bank-account"><span id="${domId('bank',record.id)}">${esc(masked)}</span><button type="button" title="查看完整银行卡号" aria-label="查看完整银行卡号" aria-pressed="false" onclick="toggleBank(${idArg(record.id)},this)">◉</button></div></div><button class="primary" onclick="pay(${idArg(record.id)})">确认付款</button></div>`}).join('')||'<div class="payment-row">暂无符合付款条件的业务</div>';
+}
+
+function snapshotFields(snapshot){
+  if(!snapshot||typeof snapshot!=='object')return '<p class="empty">暂无单据快照</p>';
+  const fields=[['业务编号','id'],['批次号','batch'],['供货方','supplier'],['货物','goods'],['毛重','gross'],['皮重','tare'],['净重','net'],['扣杂数量','inspect_qty'],['入库数量','inbound_qty'],['金额','amount'],['过磅时间','weigh_time'],['质检时间','inspect_time'],['入库时间','inbound_time'],['付款时间','payment_time'],['银行卡号','bank_account']];
+  return `<dl>${fields.filter(([,key])=>snapshot[key]!==undefined&&snapshot[key]!=='').map(([label,key])=>`<div><dt>${label}</dt><dd>${esc(String(snapshot[key]))}</dd></div>`).join('')}</dl>`;
+}
+function historyMarkup(record){
+  const history=Array.isArray(record.rejection_history)?record.rejection_history:[];
+  if(!history.length)return '<p class="empty">该业务没有驳回历史。</p>';
+  return history.map(item=>{const original=item.original||item.original_documents;const revised=item.revised||item.revised_documents;return `<div class="history-item"><b>第 ${esc(item.cycle||'?')} 次驳回 · ${esc(item.rejected_code||'ALL')}</b><p>驳回意见：${esc(item.opinion||'未填写')}</p><small>驳回时间：${esc(item.rejected_at||'')}</small><div class="source-grid"><div><small>原始单据</small>${snapshotFields(original)}</div><div><small>修改后的新版单据</small>${revised?snapshotFields(revised):'<p class="empty">尚未补件</p>'}</div></div></div>`}).join('');
+}
+function attachmentMarkup(record){return `<div class="source-grid"><div><small>过磅单</small><b>${esc(record.id)}</b><p>毛重 ${number(record.gross)} Kg · 皮重 ${number(record.tare)} Kg · 净重 ${number(record.net)} Kg<br>过磅时间：${esc(record.weigh_time||'未填写')}</p></div><div><small>质检单</small><b>${esc(record.inspect_id||'缺失')}</b><p>${esc(record.spec||'未填写')} · ${esc(record.grade||'未填写')} · 扣杂 ${number(record.inspect_qty)} Kg<br>质检时间：${esc(record.inspect_time||'未填写')}</p></div><div><small>入库单</small><b>${esc(record.inbound_id||'缺失')}</b><p>入库 ${number(record.inbound_qty)} Kg<br>入库时间：${esc(record.inbound_time||'未填写')}</p></div><div><small>收款银行卡</small><b>${esc(record.bank_account_masked||localMask(record.bank_account))}</b><p>${esc(record.bank_name||'虚拟收款户名')} · ${esc(record.bank_branch||'虚拟银行支行')}</p></div></div><h4>驳回历史附件</h4>${historyMarkup(record)}`}
+function renderLedger(){
+  if(!$('#ledgerRows'))return;
+  const rows=state.records.filter(record=>record.ledger_eligible===true);
+  if($('#ledgerNote'))$('#ledgerNote').textContent=`当前已归档 ${rows.length} 笔`;
+  $('#ledgerRows').innerHTML=rows.map(record=>{const detailId=domId('ledger-detail',record.id);return `<tr class="ledger-row" data-ledger-id="${escAttr(record.id)}"><td>HG${esc(String(record.id||'').replace(/^GB/,''))}</td><td>${esc(record.id)}</td><td>${esc(record.supplier)}</td><td>${money(record.paid_amount||record.amount)}</td><td><span class="tag success">已付款</span></td><td><button class="view-link" type="button" aria-expanded="false" aria-controls="${detailId}" onclick="toggleLedgerAttachment(${idArg(record.id)},this)">展开附件</button></td></tr><tr id="${detailId}" class="ledger-detail-row" hidden><td colspan="6"><div class="ledger-attachments">${attachmentMarkup(record)}</div></td></tr>`}).join('')||'<tr><td colspan="6">暂无已完整付款的合规业务</td></tr>';
+}
+function toggleLedgerAttachment(id,button){const detail=$(`#${domId('ledger-detail',id)}`);if(!detail)return;const open=!detail.hidden;detail.hidden=open;button.setAttribute('aria-expanded',String(!open));button.textContent=open?'展开附件':'收起附件'}
+
+function renderImports(){
+  if(!$('#importHistory'))return;
+  const imports=Array.isArray(state.imports)?state.imports:[];
+  $('#importHistory').innerHTML=imports.map(item=>`<div class="import-row"><span class="import-file">XLSX</span><div><b>${esc(item.filename)}</b><p>${esc(String(item.created_at||'').replace('T',' '))} · ${number(item.rows_count)} 笔业务</p></div><span class="tag success">${esc(item.result||'已导入')}</span></div>`).join('')||'<div class="import-row">暂无导入记录</div>';
+}
+function renderAdmin(){
+  const admin=state.admin;if(!admin)return;
+  if($('#adminSummary'))$('#adminSummary').innerHTML=[['应用后端',admin.backend||'Flask · Python'],['数据存储',admin.storage||'SQLite'],['规则数量',`${(admin.rules||[]).length} 项固定规则`]].map(item=>`<div class="admin-stat"><small>${item[0]}</small><b>${esc(item[1])}</b><span>运行正常</span></div>`).join('');
+  if($('#adminRules'))$('#adminRules').innerHTML=(admin.rules||[]).map(rule=>`<div class="admin-row"><div><b>${esc(rule.code)} · ${esc(rule.name)}</b><p>${esc(rule.owner||'合规风控部')} · 最近更新 ${esc(rule.updated||'')}</p></div><span class="tag success">${rule.enabled===false?'停用':'启用'}</span></div>`).join('');
+  if($('#adminAccounts'))$('#adminAccounts').innerHTML=(admin.accounts||[]).map(account=>`<div class="admin-row"><div><b>${esc(account.name)}</b><p>账号 ${esc(account.account)} · ${esc(account.role)}</p><small>${(account.permissions||[]).map(permission=>esc(names[permission]||permission)).join('、')}</small></div><span class="tag success">${esc(account.status||'启用')}</span></div>`).join('');
+}
+
+async function requestJson(url,options={}){const response=await fetch(url,options);const result=await readJson(response);return {response,...result}}
+async function action(url,method='POST',body){
+  const options={method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined};
+  try{const result=await requestJson(url,options);toast(result.data.message||result.data.error|| (result.ok?'操作完成':'操作失败'));if(result.ok)await loadData();return result.ok}catch(error){console.error(error);toast('操作失败，请稍后重试');return false}
+}
+async function verifyBiz(id){const ok=await action(`/api/business/${encodeURIComponent(id)}/verify`);if(ok)closeDrawer()}
+async function approveBiz(id){const ok=await action(`/api/business/${encodeURIComponent(id)}/approve`);if(ok)closeDrawer()}
+async function pay(id){const ok=await action(`/api/business/${encodeURIComponent(id)}/pay`);if(ok)closeDrawer()}
+async function rejectAll(id){const ok=await action(`/api/business/${encodeURIComponent(id)}/reject`,'POST',{opinion:'风险业务一键驳回，退回补件'});if(ok)closeDrawer()}
+async function rejectRisk(id,code){const ok=await action(`/api/business/${encodeURIComponent(id)}/risk/${encodeURIComponent(code)}/reject`,'POST',{opinion:'未通过风险项，退回补件'});if(ok)closeDrawer()}
+async function clearImportHistory(){await action('/api/import-history','DELETE')}
+async function syncLocalTemplate(){await action('/api/local-sync')}
+function toggleBank(id,button){const record=state.records.find(item=>String(item.id)===String(id));if(!record)return;const element=$(`#${domId('bank',id)}`);if(!element)return;const open=button.dataset.open==='1';element.textContent=open?(record.bank_account_masked||localMask(record.bank_account)):(record.bank_account||'未填写');button.dataset.open=open?'0':'1';button.setAttribute('aria-pressed',String(!open));button.title=open?'查看完整银行卡号':'隐藏银行卡号';button.textContent=open?'◉':'◎'}
+
+function openEdit(id){
+  if(!hasPermission('admin')){toast('当前账号无权修改单据');return}
+  const record=state.records.find(item=>String(item.id)===String(id));if(!record)return;
+  const fields=[['supplier','供货方名称'],['supplier_type','供货方类别（自然人/公司）'],['id_no','身份证号'],['registered','个体户登记标记（是/否）'],['plate','车牌号'],['goods','过磅货物品名'],['gross','毛重 (Kg)'],['tare','皮重 (Kg)'],['method','过磅方式'],['weigher','过磅员签字'],['driver','司机签字'],['weigh_date','业务日期'],['weigh_time','过磅时间'],['inspect_id','质检单编号'],['inspect_goods','质检货物品名'],['inspect_date','质检日期'],['inspect_time','质检时间'],['spec','货品规格'],['grade','质检等级'],['inspect_qty','质检扣杂数量 (Kg)'],['inbound_id','入库单编号'],['inbound_goods','入库货物品名'],['inbound_date','入库日期'],['inbound_time','入库时间'],['inbound_qty','入库数量 (Kg)'],['settlement_qty','扣杂后结算数量 (Kg)'],['payment_time','付款时间'],['price','计价单价'],['amount','计价金额'],['inspector','质检员签字'],['reviewer','复核人签字'],['invoice','票据方式（reverse/self/none）'],['frequency','近30日交易笔数'],['annual','年度累计金额'],['bank_name','收款户名'],['bank_account','银行卡号'],['bank_branch','开户行']];
+  $('#drawerContent').innerHTML=`<p class="eyebrow dark">SUPPLEMENT · ${esc(record.id)}</p><h2>补件修改后再次审核</h2><p class="drawer-sub">后台管理员可以修正资料并重新执行全部规则；财务负责人只能查看和驳回。</p><form id="editForm" class="edit-form">${fields.map(([key,label])=>`<div class="form-field"><label>${label}</label><input name="${key}" value="${escAttr(record[key])}"></div>`).join('')}<div class="manual-actions"><button class="primary" type="submit">提交补件并重新审核</button></div></form>`;
+  $('#drawer').classList.add('open');
+  $('#editForm').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());const ok=await action(`/api/business/${encodeURIComponent(id)}/resubmit`,'POST',data);if(ok)closeDrawer()};
+}
+
+function openDrawer(id){
+  const record=state.records.find(item=>String(item.id)===String(id));if(!record)return;
+  const total=ruleCount(record),passed=passedCount(record),failed=(record.checks||[]).filter(check=>!check.passed);
+  const riskActions=failed.length&&(hasPermission('approval')||hasPermission('verify'))?`<div class="decision-box"><b>风险处置</b><p>风险业务可一键驳回；也可逐项记录驳回意见。全部规则通过后才能进入付款流程。</p><div>${record.status!=='审批驳回'?`<button class="reject" onclick="rejectAll(${idArg(record.id)})">一键驳回</button>`:''}${failed.filter(check=>record.risk_decisions?.[check.code]?.decision!=='rejected').map(check=>`<button class="reject" onclick="rejectRisk(${idArg(record.id)},${idArg(check.code)})">驳回 ${esc(check.code)}</button>`).join('')}${record.status==='审批驳回'&&hasPermission('admin')?`<button class="primary" onclick="openEdit(${idArg(record.id)})">补件并再次审核</button>`:''}</div></div>`:'';
+  const verifyAction=passed>=total&&!record.verified&&hasPermission('verify')?`<div class="decision-box"><b>规则全部通过</b><p>确认已核对全部资料后，业务将进入待付款或待审批环节。</p><div><button class="primary" onclick="verifyBiz(${idArg(record.id)})">确认已核验</button></div></div>`:'';
+  const approvalAction=passed>=total&&record.verified&&Number(record.amount||0)>=PAYMENT_THRESHOLD&&!record.financial_approved&&hasPermission('approval')?`<div class="decision-box"><b>付款审批</b><p>当前业务等待财务负责人判断。</p><div><button class="primary" onclick="approveBiz(${idArg(record.id)})">财务审批</button></div></div>`:'';
+  $('#drawerContent').innerHTML=`<p class="eyebrow dark">BUSINESS EVIDENCE · ${esc(record.id)}</p><h2>${esc(record.supplier)} · ${esc(record.goods)}</h2><p class="drawer-sub">过磅 ${esc(record.weigh_time||record.weigh_date||'未填写')} · 质检 ${esc(record.inspect_time||record.inspect_date||'未填写')} · 入库 ${esc(record.inbound_time||record.inbound_date||'未填写')}</p><div class="detail-summary"><span class="tag ${passed>=total?'success':'danger'}">${passed}/${total} 通过</span><span class="tag ${statusClass(record)}">${esc(displayStage(record))}</span><span class="tag neutral">${esc(record.approval||'无需审批')}</span></div><div class="security-detail"><b>安全指纹已记录</b><span>算法：${esc(record.hash_algorithm||'SHA-256')}</span><small>整单指纹：${esc(record.integrity_hash||'待生成')}</small></div>${attachmentMarkup(record)}<h3>规则执行证据</h3>${(record.checks||[]).map(check=>`<div class="rule-detail"><div class="rule-detail-head"><i class="rule-dot ${check.passed?'':'fail'}">${check.passed?'✓':'×'}</i><b>${esc(check.code)} ${esc(check.name)}</b><span>${check.passed?'通过':record.risk_decisions?.[check.code]?.decision==='rejected'?'已驳回':'待处置'}</span></div><p>${esc(check.reason)}</p></div>`).join('')}${riskActions}${approvalAction}${verifyAction}`;
+  $('#drawer').classList.add('open');
+}
+function closeDrawer(){$('#drawer')?.classList.remove('open')}
+
+document.querySelectorAll('nav a').forEach(link=>link.addEventListener('click',event=>{event.preventDefault();showView(link.dataset.view)}));
+document.querySelectorAll('.filter-row button.filter').forEach(button=>button.addEventListener('click',()=>{$$('.filter-row button.filter').forEach(item=>item.classList.remove('active'));button.classList.add('active');state.filter=button.dataset.filter;renderRecords()}));
 $('#search')?.addEventListener('input',renderRecords);
-$('#ledgerSort')?.addEventListener('change',e=>{$('#ledgerExport').href=`/api/export?sort=${encodeURIComponent(e.target.value)}`});
-$('#manualForm')?.addEventListener('input',e=>{if(e.target.name==='gross'||e.target.name==='tare'){let gross=Number(document.querySelector('[name="gross"]').value||0),tare=Number(document.querySelector('[name="tare"]').value||0);$('#manualNet').value=gross>tare?(gross-tare).toFixed(2):''}});
-$('#manualForm')?.addEventListener('submit',async e=>{e.preventDefault();let data=Object.fromEntries(new FormData(e.target).entries()),r=await fetch('/api/business/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),x=await r.json();$('#manualResult').textContent=x.message||x.error;$('#manualResult').className=r.ok?'success-text':'error-text';if(r.ok){toast(`${x.record.id} 已保存`);e.target.reset();$('#manualNet').value='';loadData()}});
-$('#importForm')?.addEventListener('submit',async e=>{e.preventDefault();let f=$('#files').files;if(!f.length)return toast('请先选择标准 Excel 文件');let d=new FormData();[...f].forEach(x=>d.append('files',x));let r=await fetch('/api/import',{method:'POST',body:d}),x=await r.json();$('#importResult').textContent=x.message||x.error;if(r.ok){toast(`已导入 ${x.count} 笔业务`);loadData()}});
-if(location.hash)showView(location.hash.slice(1));
+$('#ledgerSort')?.addEventListener('change',event=>{if($('#ledgerExport'))$('#ledgerExport').href=`/api/export?sort=${encodeURIComponent(event.target.value)}`});
+$('#ledgerRows')?.addEventListener('click',event=>{const target=event.target;const row=target?.closest?.('tr.ledger-row');if(!row||target?.closest?.('button'))return;const button=row.querySelector('button[aria-controls]');if(button)toggleLedgerAttachment(row.dataset.ledgerId,button)});
+$('#manualForm')?.addEventListener('input',event=>{if(event.target.name==='gross'||event.target.name==='tare'){const gross=Number($('#manualForm [name="gross"]')?.value||0),tare=Number($('#manualForm [name="tare"]')?.value||0);if($('#manualNet'))$('#manualNet').value=gross>tare?(gross-tare).toFixed(2):''}});
+$('#manualForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());try{const result=await requestJson('/api/business/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if($('#manualResult')){$('#manualResult').textContent=result.data.message||result.data.error;$('#manualResult').className=result.ok?'success-text':'error-text'}if(result.ok){toast(`${result.data.record?.id||''} 已保存`);event.target.reset();if($('#manualNet'))$('#manualNet').value='';await loadData()}}catch(error){console.error(error);toast('保存失败，请稍后重试')}});
+$('#importForm')?.addEventListener('submit',async event=>{event.preventDefault();const files=$('#files')?.files;if(!files?.length){toast('请先选择 Excel 文件');return}const formData=new FormData();Array.from(files).forEach(file=>formData.append('files',file));try{const result=await requestJson('/api/import',{method:'POST',body:formData});if($('#importResult')){$('#importResult').textContent=result.data.message||result.data.error;$('#importResult').className=result.ok?'success-text':'error-text'}if(result.ok){toast(`已导入 ${result.data.count||0} 笔业务`);await loadData()}}catch(error){console.error(error);toast('导入失败，请稍后重试')}});
+$('#drawer')?.addEventListener('click',event=>{if(event.target.id==='drawer')closeDrawer()});
 loadData();
+setInterval(()=>{if(document.visibilityState==='visible')loadData()},5000);
