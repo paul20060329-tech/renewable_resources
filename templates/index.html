@@ -27,19 +27,19 @@
 <div class="app-shell">
   <aside class="sidebar">
     <a class="brand" href="#overview"><span>GL</span><i>绿循智审</i></a>
-    <div class="company"><small>当前组织</small><b>虚拟再生资源公司</b><span class="online-dot">合规引擎在线</span></div>
+    <div class="company"><small>当前组织</small><b>X再生资源公司</b><span class="online-dot">合规引擎在线</span></div>
     <p class="nav-group">业务运营</p>
     <nav aria-label="业务运营">
-      <a class="active" data-view="overview" data-permission="overview" href="#overview"><span>◫</span>数据总览</a>
-      <a data-view="ingest" data-permission="ingest" href="#ingest"><span>⇩</span>单据导入</a>
-      <a data-view="verify" data-permission="verify" href="#verify"><span>✓</span>核验中心 <em id="riskNav">0</em></a>
-      <a data-view="approval" data-permission="approval" href="#approval"><span>□</span>付款审批 <em id="approvalNav">0</em></a>
-      <a data-view="payment" data-permission="payment" href="#payment"><span>￥</span>付款中心 <em id="paymentNav">0</em></a>
-      <a data-view="ledger" data-permission="ledger" href="#ledger"><span>▤</span>合规台账</a>
+      <a class="active" data-view="overview" data-permission="overview" href="#overview" {% if 'overview' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>◫</span>数据总览</a>
+      <a data-view="ingest" data-permission="ingest" href="#ingest" {% if 'ingest' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>⇩</span>单据导入</a>
+      <a data-view="verify" data-permission="verify" href="#verify" {% if 'verify' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>✓</span>核验中心 <em id="riskNav">0</em></a>
+      <a data-view="approval" data-permission="approval" href="#approval" {% if 'approval' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>□</span>付款审批 <em id="approvalNav">0</em></a>
+      <a data-view="payment" data-permission="payment" href="#payment" {% if 'payment' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>￥</span>付款中心 <em id="paymentNav">0</em></a>
+      <a data-view="ledger" data-permission="ledger" href="#ledger" {% if 'ledger' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>▤</span>合规台账</a>
     </nav>
     <p class="nav-group">系统设置</p>
     <nav aria-label="系统设置">
-      <a data-view="admin" data-permission="admin" href="#admin"><span>⚙</span>后台管理</a>
+      <a data-view="admin" data-permission="admin" href="#admin" {% if 'admin' not in user.permissions %}hidden aria-hidden="true"{% endif %}><span>⚙</span>后台管理</a>
     </nav>
     <div class="side-bottom">
       <div class="workflow-mini"><small>业务闭环</small><p>导入 · 核验 · 审批 · 付款 · 归档</p></div>
@@ -57,10 +57,10 @@
       </div>
     </header>
 
-    <section id="overview" class="view active" data-permission="overview">
+    <section id="overview" class="view active" data-permission="overview" {% if 'overview' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row">
         <div><p class="eyebrow dark">BUSINESS INTELLIGENCE</p><h1>再生资源合规运营</h1><p>业务、风险和付款状态在同一工作台实时联动。</p></div>
-        <button class="primary" data-permission="ingest" onclick="showView('ingest')">+ 导入业务单据</button>
+        <button class="primary" data-permission="ingest" onclick="showView('ingest')" {% if 'ingest' not in user.permissions %}hidden aria-hidden="true"{% endif %}>+ 导入业务单据</button>
       </div>
       <div class="stats" id="stats"></div>
       <div class="analytics-grid">
@@ -68,12 +68,12 @@
         <section class="surface composition"><div class="surface-head"><div><span class="caption">RISK COMPOSITION</span><h2>风险规则命中</h2></div></div><div id="riskChart"></div></section>
       </div>
       <div class="grid-two">
-        <section class="surface"><div class="surface-head"><div><span class="caption">WORK QUEUE</span><h2>需要处理的业务</h2></div><button class="text-button" data-permission="approval" onclick="showView('approval')">进入付款审批 →</button></div><div id="riskQueue" class="queue"></div></section>
+        <section class="surface"><div class="surface-head"><div><span class="caption">WORK QUEUE</span><h2>需要处理的业务</h2></div><button class="text-button" data-permission="approval" onclick="showView('approval')" {% if 'approval' not in user.permissions %}hidden aria-hidden="true"{% endif %}>进入付款审批 →</button></div><div id="riskQueue" class="queue"></div></section>
         <section class="surface"><div class="surface-head"><div><span class="caption">PROCESS FUNNEL</span><h2>业务处理漏斗</h2></div></div><div id="funnel" class="funnel"></div></section>
       </div>
     </section>
 
-    <section id="ingest" class="view" data-permission="ingest">
+    <section id="ingest" class="view" data-permission="ingest" {% if 'ingest' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row">
         <div><p class="eyebrow dark">DATA INTAKE</p><h1>单据录入与导入</h1><p>支持过磅单、质检单和入库单，时间顺序与数量关系会自动校验。</p></div>
         <div class="title-actions"><a class="secondary" href="/api/templates/standard">↓ 下载标准 Excel 模板</a><a class="secondary" href="/api/templates/ledger">↓ 下载合规台账模板</a><button class="secondary" onclick="syncLocalTemplate()">↻ 同步本地模板</button></div>
@@ -110,30 +110,30 @@
       <section class="surface import-history"><div class="surface-head"><div><span class="caption">IMPORT HISTORY</span><h2>最近导入记录</h2></div><button class="secondary" onclick="clearImportHistory()">清除记录</button></div><div id="importHistory"></div></section>
     </section>
 
-    <section id="verify" class="view" data-permission="verify">
+    <section id="verify" class="view" data-permission="verify" {% if 'verify' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row"><div><p class="eyebrow dark">RULE ENGINE</p><h1>合规核验中心</h1><p>时间链为过磅 &lt; 质检 &lt; 入库 &lt; 付款，数量链为净重 - 扣杂 = 入库。</p></div><button class="secondary" onclick="loadData()">↻ 刷新核验</button></div>
       <div class="filter-row"><button class="filter active" data-filter="all">全部业务</button><button class="filter" data-filter="risk">风险业务</button><button class="filter" data-filter="passed">全部通过</button><button class="filter" data-filter="pending">待核验</button><div class="search">⌕ <input id="search" placeholder="业务编号或供应商"></div></div>
       <section class="surface table-wrap"><table><thead><tr><th>业务编号 / 供货方</th><th>货物与金额</th><th>规则矩阵（9项）</th><th>风险结论</th><th>当前环节</th><th>操作</th></tr></thead><tbody id="records"></tbody></table></section>
     </section>
 
-    <section id="approval" class="view" data-permission="approval">
+    <section id="approval" class="view" data-permission="approval" {% if 'approval' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row"><div><p class="eyebrow dark">PAYMENT APPROVAL</p><h1>付款审批</h1><p>风险业务可一键驳回；全部规则通过且达到审批条件的业务由财务负责人判断。</p></div><span class="tag danger" id="approvalCount">0 笔待处置</span></div>
       <div class="approval-steps"><div><b>1</b><span>查看核验依据</span></div><i></i><div><b>2</b><span>驳回风险或审批</span></div><i></i><div><b>3</b><span>付款后归档</span></div></div>
       <div id="approvalRows" class="approval-grid"></div>
     </section>
 
-    <section id="payment" class="view" data-permission="payment">
+    <section id="payment" class="view" data-permission="payment" {% if 'payment' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row"><div><p class="eyebrow dark">FINANCE CLEARANCE</p><h1>付款中心</h1><p>仅展示已核验并满足付款条件的业务。收款虚拟银行卡号默认隐藏中间位数，点击小眼睛查看全部。</p></div></div>
       <div class="payment-layout"><section class="surface payment-list"><div class="surface-head"><div><span class="caption">READY FOR PAYMENT</span><h2>可付款业务</h2></div><span class="tag neutral" id="paymentCount">0 笔</span></div><div id="paymentRows"></div></section><section class="payment-guide"><p class="caption">PAYMENT CONTROL</p><h2>先核验，后付款。</h2><ol><li>规则全部通过</li><li>系统按金额自动分流</li><li>待审批业务由财务负责人判断</li><li>确认付款后自动归档台账</li></ol><p class="guide-note">平台只记录虚拟付款确认，不会发起真实转账。</p></section></div>
     </section>
 
-    <section id="ledger" class="view" data-permission="ledger">
+    <section id="ledger" class="view" data-permission="ledger" {% if 'ledger' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row"><div><p class="eyebrow dark">AUDIT LEDGER</p><h1>全局合规台账</h1><p>只有规则全部通过且付款全付的业务会同步到台账；点击记录可展开附件与驳回历史。</p></div><div class="title-actions"><select id="ledgerSort" class="filter" aria-label="导出排序"><option value="risk_desc">风险等级优先</option><option value="risk_asc">合规业务优先</option><option value="amount_desc">金额从高到低</option><option value="updated_desc">更新时间从新到旧</option></select><a id="ledgerExport" class="primary" href="/api/export?sort=risk_desc">↓ 导出 Excel 台账</a></div></div>
       <div class="ledger-banner"><span>◉</span><div><b>全额付款才入账</b><p>台账与付款状态实时同步，附件保留原始单据、新版单据和每次驳回意见。</p></div><small id="ledgerNote">—</small></div>
       <section class="surface table-wrap"><table><thead><tr><th>台账编号</th><th>业务编号</th><th>供应商</th><th>金额</th><th>付款状态</th><th>附件</th></tr></thead><tbody id="ledgerRows"></tbody></table></section>
     </section>
 
-    <section id="admin" class="view" data-permission="admin">
+    <section id="admin" class="view" data-permission="admin" {% if 'admin' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row"><div><p class="eyebrow dark">SYSTEM ADMINISTRATION</p><h1>后台管理</h1><p>管理规则、账号角色及本地数据服务状态。</p></div><button class="secondary" onclick="resetDemo()">↻ 恢复演示数据</button></div>
       <div class="admin-summary" id="adminSummary"></div><div class="grid-two"><section class="surface"><div class="surface-head"><div><span class="caption">RULE CONFIGURATION</span><h2>合规规则清单</h2></div></div><div id="adminRules"></div></section><section class="surface"><div class="surface-head"><div><span class="caption">USER ROLES</span><h2>账号与权限</h2></div></div><div id="adminAccounts"></div></section></div>
     </section>

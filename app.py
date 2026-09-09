@@ -61,7 +61,7 @@ def build_demo_rows(count=100):
         batch_id = f"PC{date_code}{index:03d}"
         company = index % 10 == 0
         supplier_type = "公司" if company else "自然人"
-        supplier = f"虚拟再生企业{index:03d}" if company else f"模拟自然人{index:03d}"
+        supplier = f"X再生企业公司{index:03d}" if company else f"模拟自然人{index:03d}"
         identity = "" if company else f"SIM{19800000 + index:08d}"
         goods_name, spec, price = goods[(index - 1) % len(goods)]
         gross = 7000 + (index * 431) % 12000
@@ -294,6 +294,18 @@ def reset_demo_data():
     con = db()
     con.execute("DELETE FROM businesses")
     con.execute("DELETE FROM import_jobs")
+    # Resetting demo data must also treat the current downloaded workbooks as
+    # already-seen artifacts.  Otherwise a template generated during an
+    # earlier session can be imported again on the next dashboard refresh.
+    for name in os.listdir(LOCAL_TEMPLATE_DIR):
+        path = os.path.join(LOCAL_TEMPLATE_DIR, name)
+        if not os.path.isfile(path) or not name.lower().endswith(".xlsx"):
+            continue
+        try:
+            fingerprint = f"{os.stat(path).st_mtime_ns}:{os.path.getsize(path)}"
+            con.execute("INSERT OR REPLACE INTO local_template_state(path,mtime) VALUES(?,?)", (path, fingerprint))
+        except OSError:
+            continue
     now = datetime.now().isoformat(timespec="seconds")
     for item in DEMO_ROWS:
         ensure_workflow_fields(item)
