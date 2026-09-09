@@ -108,10 +108,15 @@ def build_demo_rows(count=100):
         inspect_time = day.strftime("%Y-%m-%d 09:15")
         inbound_time = day.strftime("%Y-%m-%d 09:30")
         payment_time = (day + timedelta(days=1)).strftime("%Y-%m-%d 10:00")
-        risk_quantity = index % 17 == 0
-        risk_time = index % 23 == 0
+        # 风险命中刻意做得多样化：有的 1 项轻微异常（低风险），
+        # 有的 2~3 项叠加（中/高风险）；index%40 的记录数量+时间同时出错。
+        risk_quantity_small = index % 17 == 0          # 扣杂小幅不符（~35Kg）
+        risk_quantity_large = index % 40 == 0 or index % 70 == 0   # 数量链大幅偏差（~1200Kg）→ 高风险
+        risk_time = index % 23 == 0 or risk_quantity_large
         risk_identity = index % 29 == 0 and not company
         risk_invoice = index % 31 == 0
+        risk_review = index % 13 == 0 and index % 40 != 0   # 复核签字缺失 + 高频交易 → 中风险
+        risk_price = index % 47 == 0                        # 计价金额与数量×单价不符
         bank_branch = VIRTUAL_BANK_BRANCHES[index % len(VIRTUAL_BANK_BRANCHES)]
         row = {
             "id": business_id, "batch": batch_id, "supplier": supplier, "supplier_type": supplier_type,
@@ -124,7 +129,7 @@ def build_demo_rows(count=100):
             "inbound_id": f"RK{date_code}{index:03d}", "inbound_date": day.date().isoformat(),
             "inbound_time": inbound_time, "payment_time": payment_time,
             "spec": spec, "grade": "A级" if index % 3 == 0 else "B级",
-            "inspect_qty": deduct + (35 if risk_quantity else 0), "inbound_qty": inbound_qty,
+            "inspect_qty": deduct + (1200 if risk_quantity_large else (35 if risk_quantity_small else 0)), "inbound_qty": inbound_qty,
             "settlement_qty": inbound_qty, "moisture": 0.8,
             "inspect_goods": goods_name, "inbound_goods": goods_name,
             "price": price, "amount": amount,
@@ -132,7 +137,7 @@ def build_demo_rows(count=100):
             "reviewer": f"虚拟复核员{['甲', '乙', '丙', '丁'][index % 4]}",
             "invoice": "none" if risk_invoice else ("reverse" if company or index % 2 else "self"),
             "annual": 6000000 if index % 37 == 0 else 300000 + index * 7000,
-            "frequency": 8 if index % 19 == 0 else (index % 5 + 1),
+            "frequency": 8 if (index % 19 == 0 or index % 13 == 0) else (index % 5 + 1),
             "bank_name": supplier, "bank_account": f"621700{(index * 7) % 10000:04d}{(index * 31) % 100000000:08d}",
             "bank_branch": bank_branch,
             "status": "待核验", "approval": "无需审批", "verified": False, "review_cycle": 1,
@@ -140,10 +145,15 @@ def build_demo_rows(count=100):
         }
         if risk_identity:
             row["id_no"] = ""
+        if risk_review:
+            row["reviewer"] = ""
+        if risk_price:
+            row["amount"] = round(row["amount"] + 2400, 2)
         if index == 1:
             row["status"], row["verified"], row["paid_amount"] = "已付款", True, amount
         elif (
-            risk_quantity or risk_time or risk_identity or risk_invoice
+            risk_quantity_small or risk_quantity_large or risk_time or risk_identity or risk_invoice
+            or risk_review or risk_price
             or row["annual"] >= 5000000 or row["frequency"] > 6
             or (row["registered"] == "是" and row["invoice"] == "reverse")
         ):
@@ -392,7 +402,7 @@ def check(row):
     time_ok = bool(row.get("inbound_id")) and all(dt != datetime.min for dt in (weigh_dt, inspect_dt, inbound_dt, payment_dt)) and weigh_dt < inspect_dt < inbound_dt < payment_dt
     items = [
         ("R01", relation, "批次号、过磅/质检/入库关联及货物品名已交叉匹配" if relation else "批次号、关联单据或货物品名不一致"),
-        ("R02", net_ok and quantity_ok, f"净重 {net:,} - 扣杂 {inspect_qty:,} = 入库 {inbound_qty:,} Kg" if quantity_ok else "净重、扣杂数量与入库数量不相等或入库数量缺失"),
+        ("R02", net_ok and quantity_ok, f"净重 {net:,} - 扣杂 {inspect_qty:,} = 入库 {inbound_qty:,} Kg" if quantity_ok else f"数量链不平：净重 {net:,.0f} - 扣杂 {inspect_qty:,.0f} ≠ 入库 {inbound_qty:,.0f} Kg，偏差 {abs(net - inspect_qty - inbound_qty):,.0f} Kg"),
         ("R03", row.get("supplier_type", "自然人") == "公司" or (bool(row.get("id_no")) and len(str(row.get("id_no"))) >= 8), "主体身份信息完整" if row.get("supplier_type", "自然人") == "公司" or row.get("id_no") else "缺少自然人身份证明"),
         ("R04", time_ok, "过磅<质检<入库<付款" if time_ok else "过磅、质检、入库、付款时间顺序不合规或存在缺失"),
         ("R05", amount_ok, f"结算数量 {settlement_qty:,} Kg × ¥{price:.2f} = ¥{amount:,.2f}" if amount_ok else "计价金额与结算数量、单价或等级不匹配"),
@@ -403,6 +413,40 @@ def check(row):
     ]
     return [{"code": code, "name": dict(RULES)[code], "passed": bool(passed), "reason": reason} for code, passed, reason in items]
 
+# 风险分级：按规则权重累加评分，再按偏差幅度加成，映射为高/中/低风险。
+#  - 高风险：评分 ≥ 30，或数量链偏差 ≥ 1000 Kg；
+#  - 中风险：评分 ≥ 10，或同时命中 2 项以上异常；
+#  - 低风险：仅命中 1 项轻微异常（签字缺失、交易频次偏高等）。
+RULE_WEIGHTS = {"R01": 10, "R02": 15, "R03": 8, "R04": 12, "R05": 8, "R06": 5, "R07": 4, "R08": 10, "R09": 6}
+
+def assess_risk(checks, row):
+    failed = [c for c in checks if not c["passed"]]
+    if not failed:
+        return {"level": "无风险", "score": 0, "failed_count": 0, "summary": "9项规则全部通过"}
+    score = sum(RULE_WEIGHTS.get(c["code"], 5) for c in failed)
+    # 数量链偏差越大越危险：净重 - 扣杂 与入库数量的差额。
+    net = clean_number(row.get("net"))
+    inspect_qty = clean_number(row.get("inspect_qty"))
+    inbound_qty = clean_number(row.get("inbound_qty"))
+    qty_dev = abs(net - inspect_qty - inbound_qty)
+    qty_bonus = 0
+    if qty_dev >= 1000: qty_bonus = 15
+    elif qty_dev >= 100: qty_bonus = 8
+    score += qty_bonus
+    # 年度累计逼近/超过 500 万 → 主体资格风险加成。
+    if clean_number(row.get("annual")) >= 5000000: score += 8
+    # 短期高频交易明显超标 → 加成。
+    if clean_number(row.get("frequency")) > 10: score += 5
+    if len(failed) >= 2 and score < 10: score = 10  # 多项异常至少中风险
+    if qty_dev >= 1000 or score >= 30:
+        level = "高风险"
+    elif score >= 10:
+        level = "中风险"
+    else:
+        level = "低风险"
+    summary = "{}项异常：{}".format(len(failed), "、".join("{} {}".format(c["code"], c["name"]) for c in failed))
+    return {"level": level, "score": min(int(score), 100), "failed_count": len(failed), "summary": summary}
+
 def get_rows():
     con = db(); saved = con.execute("SELECT payload,status,approval,updated_at FROM businesses ORDER BY updated_at DESC").fetchall(); con.close()
     records = []
@@ -411,6 +455,7 @@ def get_rows():
         ensure_workflow_fields(row, x["status"], x["approval"])
         add_security_fields(row)
         row["checks"] = check(row); row["passed"] = sum(v["passed"] for v in row["checks"])
+        row["risk"] = assess_risk(row["checks"], row)
         failed_codes = {item["code"] for item in row["checks"] if not item["passed"]}
         row["risk_decisions"] = {code: value for code, value in row.get("risk_decisions", {}).items() if code in failed_codes}
         row["bank_account_masked"] = masked_bank(row.get("bank_account"))

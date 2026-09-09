@@ -19,6 +19,13 @@ function ruleCount(record){return Array.isArray(record?.checks)&&record.checks.l
 function passedCount(record){return Number(record?.passed||0)}
 function isRisk(record){return passedCount(record)<ruleCount(record)&&record?.status!=='已付款'}
 function isPassed(record){return passedCount(record)>=ruleCount(record)}
+function riskBadge(record){
+  const total=ruleCount(record),passed=passedCount(record),failed=total-passed;
+  if(failed<=0)return{cls:'success',text:'规则全通过'};
+  const level=record.risk?.level||'中风险';
+  const cls=level==='高风险'?'danger':level==='中风险'?'warning':'neutral';
+  return{cls,level,text:`${level} · ${failed} 项异常`};
+}
 function displayStage(record){
   if(record?.current_stage)return record.current_stage;
   if(record?.status==='已付款')return '已付款';
@@ -106,7 +113,7 @@ function renderCharts(){
 function renderQueue(){
   const rows=state.records.filter(record=>isRisk(record));
   if(!$('#riskQueue'))return;
-  $('#riskQueue').innerHTML=rows.map(record=>`<div class="queue-item"><i class="risk-pip"></i><div class="queue-main"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.goods)} · ${(record.checks||[]).filter(check=>!check.passed).map(check=>esc(check.name)).slice(0,2).join('、')}</p></div><span class="tag danger">${esc(displayStage(record))}</span>${hasPermission('approval')?`<button class="text-button" onclick="showView('approval')">处置 →</button>`:hasPermission('verify')?`<button class="text-button" onclick="openDrawer(${idArg(record.id)})">处置 →</button>`:''}</div>`).join('')||'<div class="queue-item">没有待处理业务</div>';
+  $('#riskQueue').innerHTML=rows.map(record=>`<div class="queue-item"><i class="risk-pip"></i><div class="queue-main"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.risk?.level||'风险')}（${esc(record.risk?.score||0)} 分）· ${esc(record.goods)} · ${(record.checks||[]).filter(check=>!check.passed).map(check=>esc(check.name)).slice(0,2).join('、')}</p></div><span class="tag ${riskBadge(record).cls}">${esc(displayStage(record))}</span>${hasPermission('approval')?`<button class="text-button" onclick="showView('approval')">处置 →</button>`:hasPermission('verify')?`<button class="text-button" onclick="openDrawer(${idArg(record.id)})">处置 →</button>`:''}</div>`).join('')||'<div class="queue-item">没有待处理业务</div>';
 }
 
 function recordMatchesFilter(record){
@@ -120,10 +127,10 @@ function renderRecords(){
   const query=($('#search')?.value||'').trim().toLowerCase();
   const rows=state.records.filter(record=>recordMatchesFilter(record)).filter(record=>[record.id,record.batch,record.supplier].join(' ').toLowerCase().includes(query));
   $('#records').innerHTML=rows.map(record=>{
-    const total=ruleCount(record),passed=passedCount(record);
+    const total=ruleCount(record),passed=passedCount(record),badge=riskBadge(record);
     const rejectAction=isRisk(record)&&(hasPermission('verify')||hasPermission('approval'))?`<button class="reject compact" onclick="rejectAll(${idArg(record.id)})">一键驳回</button>`:'';
     const action=passed>=total&&!record.verified&&hasPermission('verify')?`<button class="primary compact" onclick="verifyBiz(${idArg(record.id)})">确认已核验</button>`:`<button class="view-link" onclick="openDrawer(${idArg(record.id)})">查看详情</button>`;
-    return `<tr><td><div class="business-cell"><b>${esc(record.id)}</b><small>${esc(record.batch)} · ${esc(record.supplier)} · ${esc(record.supplier_type||'自然人')}</small></div></td><td>${esc(record.goods)}<small class="block">${money(record.amount)}</small></td><td><div class="rule-dots">${(record.checks||[]).map(check=>`<i class="rule-dot ${check.passed?'':'fail'}" title="${escAttr(check.name)}">${check.passed?'✓':'×'}</i>`).join('')}</div></td><td><span class="tag ${passed>=total?'success':'danger'}">${passed>=total?'规则全通过':`${total-passed} 项异常`}</span></td><td><span class="tag ${statusClass(record)}">${esc(displayStage(record))}</span></td><td>${rejectAction}${action}</td></tr>`;
+    return `<tr><td><div class="business-cell"><b>${esc(record.id)}</b><small>${esc(record.batch)} · ${esc(record.supplier)} · ${esc(record.supplier_type||'自然人')}</small></div></td><td>${esc(record.goods)}<small class="block">${money(record.amount)}</small></td><td><div class="rule-dots">${(record.checks||[]).map(check=>`<i class="rule-dot ${check.passed?'':'fail'}" title="${escAttr(check.name)}">${check.passed?'✓':'×'}</i>`).join('')}</div></td><td><span class="tag ${badge.cls}" title="${escAttr(record.risk?.summary||'')}">${badge.text}</span></td><td><span class="tag ${statusClass(record)}">${esc(displayStage(record))}</span></td><td>${rejectAction}${action}</td></tr>`;
   }).join('')||'<tr><td colspan="6">暂无匹配记录</td></tr>';
 }
 
@@ -140,7 +147,7 @@ function renderApproval(){
     const individualActions=risk&&canHandleRisk?failed.filter(check=>record.risk_decisions?.[check.code]?.decision!=='rejected').map(check=>`<button class="reject" onclick="rejectRisk(${idArg(record.id)},${idArg(check.code)})">驳回 ${esc(check.code)}</button>`).join(''):'';
     const editAction=record.status==='审批驳回'&&hasPermission('admin')?`<button class="primary" onclick="openEdit(${idArg(record.id)})">补件并再次审核</button>`:'';
     const approveAction=!risk&&hasPermission('approval')&&!record.financial_approved?`<button class="primary" onclick="approveBiz(${idArg(record.id)})">财务审批</button>`:'';
-    return `<article class="approval-card"><div class="approval-top"><div><span class="caption">${risk?'RISK CASE':'AMOUNT REVIEW'} · ${esc(record.id)}</span><h2>${esc(record.supplier)} · ${esc(record.goods)}</h2><p>${money(record.amount)} · ${number(record.net)} Kg · ${esc(displayStage(record))}</p></div><span class="tag ${risk?'danger':'warning'}">${risk?`${failed.length} 项异常`:'待财务判断'}</span></div>${riskInfo}<div class="approval-actions"><button class="secondary" onclick="openDrawer(${idArg(record.id)})">查看核验依据</button>${rejectAction}${individualActions}${editAction}${approveAction}</div></article>`;
+    return `<article class="approval-card"><div class="approval-top"><div><span class="caption">${risk?'RISK CASE':'AMOUNT REVIEW'} · ${esc(record.id)}</span><h2>${esc(record.supplier)} · ${esc(record.goods)}</h2><p>${money(record.amount)} · ${number(record.net)} Kg · ${esc(displayStage(record))}</p></div><span class="tag ${risk?riskBadge(record).cls:'warning'}">${risk?riskBadge(record).text:'待财务判断'}</span></div>${riskInfo}<div class="approval-actions"><button class="secondary" onclick="openDrawer(${idArg(record.id)})">查看核验依据</button>${rejectAction}${individualActions}${editAction}${approveAction}</div></article>`;
   }).join('')||'<div class="empty-panel">当前没有待处置业务。</div>';
 }
 
@@ -213,7 +220,7 @@ function openDrawer(id){
   const riskActions=failed.length&&(hasPermission('approval')||hasPermission('verify'))?`<div class="decision-box"><b>风险处置</b><p>风险业务可一键驳回；也可逐项记录驳回意见。全部规则通过后才能进入付款流程。</p><div>${record.status!=='审批驳回'?`<button class="reject" onclick="rejectAll(${idArg(record.id)})">一键驳回</button>`:''}${failed.filter(check=>record.risk_decisions?.[check.code]?.decision!=='rejected').map(check=>`<button class="reject" onclick="rejectRisk(${idArg(record.id)},${idArg(check.code)})">驳回 ${esc(check.code)}</button>`).join('')}${record.status==='审批驳回'&&hasPermission('admin')?`<button class="primary" onclick="openEdit(${idArg(record.id)})">补件并再次审核</button>`:''}</div></div>`:'';
   const verifyAction=passed>=total&&!record.verified&&hasPermission('verify')?`<div class="decision-box"><b>规则全部通过</b><p>确认已核对全部资料后，业务将进入待付款或待审批环节。</p><div><button class="primary" onclick="verifyBiz(${idArg(record.id)})">确认已核验</button></div></div>`:'';
   const approvalAction=passed>=total&&record.verified&&Number(record.amount||0)>=PAYMENT_THRESHOLD&&!record.financial_approved&&hasPermission('approval')?`<div class="decision-box"><b>付款审批</b><p>当前业务等待财务负责人判断。</p><div><button class="primary" onclick="approveBiz(${idArg(record.id)})">财务审批</button></div></div>`:'';
-  $('#drawerContent').innerHTML=`<p class="eyebrow dark">BUSINESS EVIDENCE · ${esc(record.id)}</p><h2>${esc(record.supplier)} · ${esc(record.goods)}</h2><p class="drawer-sub">过磅 ${esc(record.weigh_time||record.weigh_date||'未填写')} · 质检 ${esc(record.inspect_time||record.inspect_date||'未填写')} · 入库 ${esc(record.inbound_time||record.inbound_date||'未填写')}</p><div class="detail-summary"><span class="tag ${passed>=total?'success':'danger'}">${passed}/${total} 通过</span><span class="tag ${statusClass(record)}">${esc(displayStage(record))}</span><span class="tag neutral">${esc(record.approval||'无需审批')}</span></div><div class="security-detail"><b>安全指纹已记录</b><span>算法：${esc(record.hash_algorithm||'SHA-256')}</span><small>整单指纹：${esc(record.integrity_hash||'待生成')}</small></div>${attachmentMarkup(record)}<h3>规则执行证据</h3>${(record.checks||[]).map(check=>`<div class="rule-detail"><div class="rule-detail-head"><i class="rule-dot ${check.passed?'':'fail'}">${check.passed?'✓':'×'}</i><b>${esc(check.code)} ${esc(check.name)}</b><span>${check.passed?'通过':record.risk_decisions?.[check.code]?.decision==='rejected'?'已驳回':'待处置'}</span></div><p>${esc(check.reason)}</p></div>`).join('')}${riskActions}${approvalAction}${verifyAction}`;
+  $('#drawerContent').innerHTML=`<p class="eyebrow dark">BUSINESS EVIDENCE · ${esc(record.id)}</p><h2>${esc(record.supplier)} · ${esc(record.goods)}</h2><p class="drawer-sub">过磅 ${esc(record.weigh_time||record.weigh_date||'未填写')} · 质检 ${esc(record.inspect_time||record.inspect_date||'未填写')} · 入库 ${esc(record.inbound_time||record.inbound_date||'未填写')}</p><div class="detail-summary"><span class="tag ${passed>=total?'success':riskBadge(record).cls}">${passed}/${total} 通过${passed<total?` · ${riskBadge(record).text}`:''}</span><span class="tag ${statusClass(record)}">${esc(displayStage(record))}</span><span class="tag neutral">${esc(record.approval||'无需审批')}</span></div><div class="security-detail"><b>安全指纹已记录</b><span>算法：${esc(record.hash_algorithm||'SHA-256')}</span><small>整单指纹：${esc(record.integrity_hash||'待生成')}</small></div>${attachmentMarkup(record)}<h3>规则执行证据</h3>${(record.checks||[]).map(check=>`<div class="rule-detail"><div class="rule-detail-head"><i class="rule-dot ${check.passed?'':'fail'}">${check.passed?'✓':'×'}</i><b>${esc(check.code)} ${esc(check.name)}</b><span>${check.passed?'通过':record.risk_decisions?.[check.code]?.decision==='rejected'?'已驳回':'待处置'}</span></div><p>${esc(check.reason)}</p></div>`).join('')}${riskActions}${approvalAction}${verifyAction}`;
   $('#drawer').classList.add('open');
 }
 function closeDrawer(){$('#drawer')?.classList.remove('open')}
