@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>绿循智审 · 合规运营平台</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=11">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20">
   <style>
     .bank-account{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--green);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
     .bank-account button{width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:50%;background:#f3f8f5;color:var(--green);font-size:13px;line-height:1}
@@ -63,13 +63,15 @@
         <button class="primary" data-permission="ingest" onclick="showView('ingest')" {% if 'ingest' not in user.permissions %}hidden aria-hidden="true"{% endif %}>+ 导入业务单据</button>
       </div>
       <div class="stats" id="stats"></div>
-      <div class="analytics-grid">
-        <section class="surface chart-card"><div class="surface-head"><div><span class="caption">TRANSACTION FLOW</span><h2>已确认付款金额趋势</h2></div><span class="tag neutral">近 7 日</span></div><div id="trendChart" class="trend-chart"></div><div id="chartLabels" class="chart-labels"></div></section>
-        <section class="surface composition"><div class="surface-head"><div><span class="caption">RISK COMPOSITION</span><h2>风险规则命中</h2></div></div><div id="riskChart"></div></section>
+      <div class="quad-grid">
+        <section class="surface quad"><div class="surface-head"><div><span class="caption">SUPPLIER VALUE</span><h2>供货方金额 TOP</h2></div><span class="tag neutral">按金额</span></div><div id="supplierChart" class="quad-pad"></div></section>
+        <section class="surface quad"><div class="surface-head"><div><span class="caption">RISK LEVELS</span><h2>风险等级分布</h2></div><span class="tag danger" id="riskLevelTotal">0 笔</span></div><div id="levelChart" class="quad-pad"></div></section>
+        <section class="surface quad"><div class="surface-head"><div><span class="caption">CATEGORY VALUE</span><h2>货物品类金额 TOP</h2></div><span class="tag neutral">按金额</span></div><div id="goodsChart" class="quad-pad"></div></section>
+        <section class="surface quad"><div class="surface-head"><div><span class="caption">RULE HITS</span><h2>规则命中 TOP</h2></div></div><div id="ruleChart" class="quad-pad"></div></section>
       </div>
-      <div class="grid-two">
+      <div class="grid-two aligned">
         <section class="surface"><div class="surface-head"><div><span class="caption">WORK QUEUE</span><h2>需要处理的业务</h2></div><button class="text-button" data-permission="approval" onclick="showView('approval')" {% if 'approval' not in user.permissions %}hidden aria-hidden="true"{% endif %}>进入付款审批 →</button></div><div id="riskQueue" class="queue"></div></section>
-        <section class="surface"><div class="surface-head"><div><span class="caption">PROCESS FUNNEL</span><h2>业务处理漏斗</h2></div></div><div id="funnel" class="funnel"></div></section>
+        <section class="surface"><div class="surface-head"><div><span class="caption">PROCESS STAGES</span><h2>业务处理阶段分布</h2></div><span class="tag neutral">各阶段笔数</span></div><div id="funnel" class="funnel"></div></section>
       </div>
     </section>
 
@@ -78,7 +80,15 @@
         <div><p class="eyebrow dark">DATA INTAKE</p><h1>单据录入与导入</h1><p>支持过磅单、质检单和入库单，时间顺序与数量关系会自动校验。</p></div>
         <div class="title-actions"><a class="secondary" href="/api/templates/standard">↓ 下载标准 Excel 模板</a><a class="secondary" href="/api/templates/ledger">↓ 下载合规台账模板</a><button class="secondary" onclick="syncLocalTemplate()">↻ 同步本地模板</button></div>
       </div>
-      <div class="process-strip"><div><b>01</b>填写模板</div><span>→</span><div><b>02</b>保存或上传</div><span>→</span><div><b>03</b>自动匹配入库单</div><span>→</span><div><b>04</b>执行规则核验</div></div>
+      <div class="intake-flow">
+        <div class="flow-step"><b>01</b><div class="flow-text"><strong>填写模板</strong><small>下载标准模板，填写过磅、质检、入库数据</small></div></div>
+        <i></i>
+        <div class="flow-step"><b>02</b><div class="flow-text"><strong>保存或上传</strong><small>选择 Excel 批量导入，或放入本地模板目录</small></div></div>
+        <i></i>
+        <div class="flow-step"><b>03</b><div class="flow-text"><strong>自动匹配入库单</strong><small>按单号与时间自动关联三单、拆分关联单据</small></div></div>
+        <i></i>
+        <div class="flow-step"><b>04</b><div class="flow-text"><strong>执行规则核验</strong><small>9 条规则自动校验，生成高中低风险等级</small></div></div>
+      </div>
 
       <div class="upload-grid">
         <form class="upload-card" id="importForm"><div class="upload-icon">⇧</div><h2>Excel 批量导入</h2><p>标准模板包含“过磅单”“质检单”“入库单”三个工作表；也支持指定的“合规台账”模板。</p><input id="files" type="file" accept=".xlsx" multiple><label class="secondary" for="files">选择 Excel 文件</label><button class="primary" type="submit">开始导入并运行规则</button><div id="importResult"></div></form>
@@ -124,7 +134,7 @@
 
     <section id="payment" class="view" data-permission="payment" {% if 'payment' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
       <div class="title-row"><div><p class="eyebrow dark">FINANCE CLEARANCE</p><h1>付款中心</h1><p>仅展示已核验并满足付款条件的业务。收款虚拟银行卡号默认隐藏中间位数，点击小眼睛查看全部。</p></div></div>
-      <div class="payment-layout"><section class="surface payment-list"><div class="surface-head"><div><span class="caption">READY FOR PAYMENT</span><h2>可付款业务</h2></div><span class="tag neutral" id="paymentCount">0 笔</span></div><div id="paymentRows"></div></section><section class="payment-guide"><p class="caption">PAYMENT CONTROL</p><h2>先核验，后付款。</h2><ol><li>规则全部通过</li><li>系统按金额自动分流</li><li>待审批业务由财务负责人判断</li><li>确认付款后自动归档台账</li></ol><p class="guide-note">平台只记录虚拟付款确认，不会发起真实转账。</p></section></div>
+      <div class="payment-layout"><section class="surface payment-list"><div class="surface-head"><div><span class="caption">READY FOR PAYMENT</span><h2>可付款业务</h2></div><span class="tag neutral" id="paymentCount">0 笔</span></div><div id="paymentRows"></div></section><section class="payment-guide"><p class="caption">PAYMENT CONTROL</p><h2>先核验，后付款。</h2><div class="pay-kpis" id="payKpis"></div><div class="pay-split" id="paySplit"></div><div class="pay-recent" id="payRecent"></div><p class="guide-note">平台只记录虚拟付款确认，不会发起真实转账。</p></section></div>
     </section>
 
     <section id="ledger" class="view" data-permission="ledger" {% if 'ledger' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
@@ -142,6 +152,6 @@
 
 <div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="业务详情"><div class="drawer-panel"><button class="close" aria-label="关闭详情" onclick="closeDrawer()">×</button><div id="drawerContent"></div></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="{{ url_for('static', filename='app.js') }}?v=11"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=20"></script>
 </body>
 </html>

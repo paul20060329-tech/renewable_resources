@@ -96,24 +96,50 @@ function render(){
 
 function renderCharts(){
   const records=state.records||[];
-  const paidByDate={};
-  records.filter(record=>record.status==='已付款').forEach(record=>{const date=String(record.payment_time||record.weigh_date||'').slice(5,10)||'--';paidByDate[date]=(paidByDate[date]||0)+Number(record.paid_amount||0)});
-  const dates=Object.keys(paidByDate).sort().slice(-7);
-  const values=dates.map(date=>paidByDate[date]);
-  const max=Math.max(...values,1);
-  if($('#trendChart'))$('#trendChart').innerHTML=dates.length?`<svg viewBox="0 0 101 105" preserveAspectRatio="none" aria-label="已确认付款金额趋势"><polyline points="${values.map((value,index)=>`${dates.length===1?50:index*100/(dates.length-1)},${100-(value/max*86)}`).join(' ')}" fill="none" stroke="#167a59" stroke-width="2" vector-effect="non-scaling-stroke"></polyline></svg>`:'<div class="empty">暂无已确认付款数据</div>';
-  if($('#chartLabels'))$('#chartLabels').innerHTML=dates.map(date=>`<span>${esc(date)}</span>`).join('');
+  // 格1：供货方金额 TOP5
+  const suppliers={};records.forEach(record=>{const key=String(record.supplier||'未填写').trim()||'未填写';suppliers[key]=(suppliers[key]||0)+Number(record.amount||0)});
+  const topSuppliers=Object.entries(suppliers).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const supplierMax=topSuppliers[0]?.[1]||1;
+  if($('#supplierChart'))$('#supplierChart').innerHTML=topSuppliers.map(([name,sum])=>`<div class="risk-bar"><div><span title="${escAttr(name)}">${esc(name)}</span><b>${money(sum)}</b></div><i><em style="width:${Math.max(4,sum/supplierMax*100)}%;background:#3d7ea6"></em></i></div>`).join('')||'<div class="empty">暂无供货方数据</div>';
+  // 格2：风险等级分布（高/中/低）
+  const levelColors={高风险:'#bf4b3a',中风险:'#e0a356',低风险:'#93b3a4'};
+  const levels={高风险:0,中风险:0,低风险:0};
+  records.forEach(record=>{if(passedCount(record)<ruleCount(record)){const level=record.risk?.level;levels[level&&level in levels?level:'中风险']++}});
+  const riskTotal=levels.高风险+levels.中风险+levels.低风险;
+  if($('#riskLevelTotal'))$('#riskLevelTotal').textContent=`${riskTotal} 笔`;
+  if($('#levelChart'))$('#levelChart').innerHTML=riskTotal?`<div class="level-stack">${['高风险','中风险','低风险'].map(level=>levels[level]?`<i style="width:${levels[level]/riskTotal*100}%;background:${levelColors[level]}"></i>`:'').join('')}</div>${['高风险','中风险','低风险'].map(level=>`<div class="level-row"><i class="level-dot" style="background:${levelColors[level]}"></i><span>${level}</span><small>${riskTotal?Math.round(levels[level]/riskTotal*100):0}%</small><b>${levels[level]} 笔</b></div>`).join('')}`:'<div class="empty">当前没有风险记录</div>';
+  // 格3：货物品类金额 TOP5
+  const goods={};records.forEach(record=>{const key=String(record.goods||'未填写').trim()||'未填写';goods[key]=(goods[key]||0)+Number(record.amount||0)});
+  const topGoods=Object.entries(goods).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const goodsMax=topGoods[0]?.[1]||1;
+  if($('#goodsChart'))$('#goodsChart').innerHTML=topGoods.map(([name,sum])=>`<div class="risk-bar"><div><span>${esc(name)}</span><b>${money(sum)}</b></div><i><em style="width:${Math.max(4,sum/goodsMax*100)}%;background:#167a59"></em></i></div>`).join('')||'<div class="empty">暂无品类数据</div>';
+  // 格4：规则命中 TOP
   const failures={};records.forEach(record=>(record.checks||[]).filter(check=>!check.passed).forEach(check=>{failures[check.name]=(failures[check.name]||0)+1}));
   const totalFailures=Object.values(failures).reduce((sum,value)=>sum+value,0)||1;
-  if($('#riskChart'))$('#riskChart').innerHTML=Object.entries(failures).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([name,count])=>`<div class="risk-bar"><div><span>${esc(name)}</span><b>${count} 笔</b></div><i><em style="width:${count/totalFailures*100}%"></em></i></div>`).join('')||'<div class="empty">当前没有规则风险命中</div>';
-  const totalRecords=records.length||1;
-  if($('#funnel'))$('#funnel').innerHTML=[['已导入',records.length],['已核验',records.filter(record=>record.verified).length],['待审批',records.filter(record=>displayStage(record)==='待审批').length],['已付款',records.filter(record=>record.status==='已付款').length]].map(item=>`<div class="funnel-line"><span>${item[0]}</span><i style="width:${Math.max(8,item[1]/totalRecords*100)}%"></i><b>${item[1]} 笔</b></div>`).join('');
+  if($('#ruleChart'))$('#ruleChart').innerHTML=Object.entries(failures).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,count])=>`<div class="risk-bar"><div><span>${esc(name)}</span><b>${count} 笔</b></div><i><em style="width:${count/totalFailures*100}%"></em></i></div>`).join('')||'<div class="empty">当前没有规则风险命中</div>';
+  if($('#funnel')){
+    const stages=[['已导入',records.length],['已核验',records.filter(record=>record.verified).length],['待审批',records.filter(record=>displayStage(record)==='待审批').length],['已付款',records.filter(record=>record.status==='已付款').length]];
+    const peak=Math.max(...stages.map(item=>item[1]),1);
+    const total=stages[0][1]||1;
+    const colors=['#14684a','#1d7a58','#2c8f6a','#45a37c'];
+    $('#funnel').innerHTML=`<div class="histo"><div class="histo-bars">${stages.map((item,index)=>`<div class="histo-col" title="${item[0]}：${item[1]} 笔"><span>${item[1]}</span><i style="height:${Math.max(5,item[1]/peak*100)}%;background:linear-gradient(180deg,${colors[index]},${colors[index]}cc)"></i></div>`).join('')}</div><div class="histo-axis">${stages.map((item,index)=>`<span><b>${item[0]}</b><small>${Math.round(item[1]/total*100)}%</small></span>`).join('')}</div></div>`;
+  }
 }
 
+const QUEUE_PREVIEW_COUNT=5;
+let queueExpanded=false;
+function toggleQueue(){queueExpanded=!queueExpanded;renderQueue()}
 function renderQueue(){
   const rows=state.records.filter(record=>isRisk(record));
   if(!$('#riskQueue'))return;
-  $('#riskQueue').innerHTML=rows.map(record=>`<div class="queue-item"><i class="risk-pip"></i><div class="queue-main"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.risk?.level||'风险')}（${esc(record.risk?.score||0)} 分）· ${esc(record.goods)} · ${(record.checks||[]).filter(check=>!check.passed).map(check=>esc(check.name)).slice(0,2).join('、')}</p></div><span class="tag ${riskBadge(record).cls}">${esc(displayStage(record))}</span>${hasPermission('approval')?`<button class="text-button" onclick="showView('approval')">处置 →</button>`:hasPermission('verify')?`<button class="text-button" onclick="openDrawer(${idArg(record.id)})">处置 →</button>`:''}</div>`).join('')||'<div class="queue-item">没有待处理业务</div>';
+  const item=record=>`<div class="queue-item"><i class="risk-pip"></i><div class="queue-main"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.risk?.level||'风险')}（${esc(record.risk?.score||0)} 分）· ${esc(record.goods)} · ${(record.checks||[]).filter(check=>!check.passed).map(check=>esc(check.name)).slice(0,2).join('、')}</p></div><span class="tag ${riskBadge(record).cls}">${esc(displayStage(record))}</span>${hasPermission('approval')?`<button class="text-button" onclick="showView('approval')">处置 →</button>`:hasPermission('verify')?`<button class="text-button" onclick="openDrawer(${idArg(record.id)})">处置 →</button>`:''}</div>`;
+  const visible=queueExpanded?rows:rows.slice(0,QUEUE_PREVIEW_COUNT);
+  let html=visible.map(item).join('');
+  if(rows.length>QUEUE_PREVIEW_COUNT){
+    const hidden=rows.length-QUEUE_PREVIEW_COUNT;
+    html+=`<button class="queue-toggle" onclick="toggleQueue()">${queueExpanded?`收起列表 ↑`:`展开全部 ${rows.length} 条（还有 ${hidden} 条）↓`}</button>`;
+  }
+  $('#riskQueue').innerHTML=html||'<div class="queue-item">没有待处理业务</div>';
 }
 
 function recordMatchesFilter(record){
@@ -158,6 +184,25 @@ function renderPayments(){
   const rows=state.records.filter(record=>paymentEligible(record));
   if($('#paymentCount'))$('#paymentCount').textContent=`${rows.length} 笔待确认`;
   $('#paymentRows').innerHTML=rows.map(record=>{const masked=record.bank_account_masked||localMask(record.bank_account);return `<div class="payment-row"><div class="grow"><b>${esc(record.id)} · ${esc(record.supplier)}</b><p>${esc(record.goods)} · ${money(record.amount)} · ${esc(displayStage(record))}</p><div class="bank-account"><span id="${domId('bank',record.id)}">${esc(masked)}</span><button type="button" title="查看完整银行卡号" aria-label="查看完整银行卡号" aria-pressed="false" onclick="toggleBank(${idArg(record.id)},this)">◉</button></div></div><button class="primary" onclick="pay(${idArg(record.id)})">确认付款</button></div>`}).join('')||'<div class="payment-row">暂无符合付款条件的业务</div>';
+  renderPaymentGuide(rows);
+}
+function renderPaymentGuide(rows){
+  const pendingAmount=rows.reduce((sum,record)=>sum+Number(record.amount||0),0);
+  const paid=state.records.filter(record=>record.status==='已付款');
+  const paidAmount=paid.reduce((sum,record)=>sum+Number(record.paid_amount||record.amount||0),0);
+  if($('#payKpis'))$('#payKpis').innerHTML=[['待确认付款',`${rows.length} 笔`,money(pendingAmount)],['已确认付款',`${paid.length} 笔`,money(paidAmount)],['付款阈值',`${PAYMENT_THRESHOLD/10000} 万`,`小额直付线`]].map(item=>`<div><small>${item[0]}</small><b>${item[1]}</b><span>${item[2]}</span></div>`).join('');
+  if($('#paySplit')){
+    const smallRows=rows.filter(record=>Number(record.amount||0)<PAYMENT_THRESHOLD);
+    const bigRows=rows.filter(record=>Number(record.amount||0)>=PAYMENT_THRESHOLD);
+    const bigWaiting=state.records.filter(record=>isPassed(record)&&record.verified&&Number(record.amount||0)>=PAYMENT_THRESHOLD&&!record.financial_approved&&record.status!=='已付款');
+    const base=Math.max(pendingAmount,1);
+    const bar=(count,sum,label,note)=>`<div class="pay-split-row"><span>${label}</span><i><em style="width:${Math.max(4,sum/base*100)}%"></em></i><b>${count} 笔</b></div><small>${note}</small>`;
+    $('#paySplit').innerHTML=`<b>金额自动分流（待确认）</b>${bar(smallRows.length,smallRows.reduce((sum,record)=>sum+Number(record.amount||0),0),'小额直付','金额 < 5 万，核验通过后可直接确认付款')}${bar(bigRows.length,bigRows.reduce((sum,record)=>sum+Number(record.amount||0),0),'大额已审批','金额 ≥ 5 万，已获财务负责人批准')}${bar(bigWaiting.length,bigWaiting.reduce((sum,record)=>sum+Number(record.amount||0),0),'大额待审批','金额 ≥ 5 万，等待财务负责人判断')}`;
+  }
+  if($('#payRecent')){
+    const recent=paid.slice().sort((a,b)=>String(b.payment_time||'').localeCompare(String(a.payment_time||''))).slice(0,3);
+    $('#payRecent').innerHTML=`<b>最近确认付款</b>${recent.map(record=>`<div class="pay-recent-item"><b>${esc(record.id)} · ${esc(record.supplier)}</b><span>${money(record.paid_amount||record.amount)} · ${esc(record.payment_time||'时间未记录')}</span></div>`).join('')||'<p class="pay-recent-empty">还没有确认付款记录</p>'}`;
+  }
 }
 
 function snapshotFields(snapshot){

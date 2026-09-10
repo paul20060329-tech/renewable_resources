@@ -510,7 +510,10 @@ def sheet_rows(ws):
     values = list(ws.iter_rows(values_only=True))
     if not values: return []
     headers = [str(x).strip() if x is not None else "" for x in values[0]]
-    return [dict(zip(headers, row)) for row in values[1:] if any(v is not None and v != "" for v in row)]
+    # 空白单元格归一化为空串：否则 str(None) 会变成字面量 "None"，
+    # 既会污染界面显示，也会让"签字留空"这类缺失被误判为已填写。
+    return [{key: ("" if value is None else value) for key, value in zip(headers, row)}
+            for row in values[1:] if any(v is not None and v != "" for v in row)]
 
 def find_sheet(workbook, name):
     return workbook[name] if name in workbook.sheetnames else None
