@@ -1,6 +1,3 @@
-# TODO 完成合规台账的实时筛选功能
-# FIXME: 修复dashboard的美观分布
-
 import base64
 import hashlib
 import io
