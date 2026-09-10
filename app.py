@@ -1,3 +1,6 @@
+# TODO 完成合规台账的实时筛选功能
+# FIXME: 修复dashboard的美观分布
+
 import base64
 import hashlib
 import io
@@ -993,11 +996,12 @@ def export():
         wb = Workbook(); ws = wb.active; ws.title = "合规台账"
         ws.append(["台账编号", "业务日期", "业务类型"])
     rows = get_rows()
-    sort = request.args.get("sort", "risk_desc")
-    if sort == "risk_desc": rows.sort(key=lambda r: (r["passed"] == 9, r["passed"], r["updated_at"]))
-    elif sort == "risk_asc": rows.sort(key=lambda r: (r["passed"] != 9, -r["passed"], r["updated_at"]))
-    elif sort == "amount_desc": rows.sort(key=lambda r: r["amount"], reverse=True)
-    elif sort == "updated_desc": rows.sort(key=lambda r: r["updated_at"], reverse=True)
+    sort = request.args.get("sort", "completed_desc")
+    def completed_key(r): return r.get("payment_time") or r.get("updated_at") or ""
+    if sort == "completed_asc": rows.sort(key=completed_key)
+    elif sort == "amount_desc": rows.sort(key=lambda r: float(r.get("amount", 0) or 0), reverse=True)
+    elif sort == "amount_asc": rows.sort(key=lambda r: float(r.get("amount", 0) or 0))
+    else: rows.sort(key=completed_key, reverse=True)
     for r in rows:
         if not r.get("ledger_eligible"): continue
         paid = float(r.get("paid_amount", 0) or 0)

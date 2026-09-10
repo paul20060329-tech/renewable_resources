@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>绿循智审 · 合规运营平台</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=21">
   <style>
     .bank-account{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--green);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
     .bank-account button{width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:50%;background:#f3f8f5;color:var(--green);font-size:13px;line-height:1}
@@ -63,16 +63,14 @@
         <button class="primary" data-permission="ingest" onclick="showView('ingest')" {% if 'ingest' not in user.permissions %}hidden aria-hidden="true"{% endif %}>+ 导入业务单据</button>
       </div>
       <div class="stats" id="stats"></div>
+      <section class="surface stage-card"><div class="surface-head"><div><span class="caption">PROCESS STAGES</span><h2>业务处理阶段分布</h2></div><span class="tag neutral">各阶段笔数</span></div><div id="funnel" class="funnel"></div></section>
       <div class="quad-grid">
         <section class="surface quad"><div class="surface-head"><div><span class="caption">SUPPLIER VALUE</span><h2>供货方金额 TOP</h2></div><span class="tag neutral">按金额</span></div><div id="supplierChart" class="quad-pad"></div></section>
         <section class="surface quad"><div class="surface-head"><div><span class="caption">RISK LEVELS</span><h2>风险等级分布</h2></div><span class="tag danger" id="riskLevelTotal">0 笔</span></div><div id="levelChart" class="quad-pad"></div></section>
         <section class="surface quad"><div class="surface-head"><div><span class="caption">CATEGORY VALUE</span><h2>货物品类金额 TOP</h2></div><span class="tag neutral">按金额</span></div><div id="goodsChart" class="quad-pad"></div></section>
         <section class="surface quad"><div class="surface-head"><div><span class="caption">RULE HITS</span><h2>规则命中 TOP</h2></div></div><div id="ruleChart" class="quad-pad"></div></section>
       </div>
-      <div class="grid-two aligned">
-        <section class="surface"><div class="surface-head"><div><span class="caption">WORK QUEUE</span><h2>需要处理的业务</h2></div><button class="text-button" data-permission="approval" onclick="showView('approval')" {% if 'approval' not in user.permissions %}hidden aria-hidden="true"{% endif %}>进入付款审批 →</button></div><div id="riskQueue" class="queue"></div></section>
-        <section class="surface"><div class="surface-head"><div><span class="caption">PROCESS STAGES</span><h2>业务处理阶段分布</h2></div><span class="tag neutral">各阶段笔数</span></div><div id="funnel" class="funnel"></div></section>
-      </div>
+      <section class="surface queue-card"><div class="surface-head"><div><span class="caption">WORK QUEUE</span><h2>需要处理的业务</h2></div><button class="text-button" data-permission="approval" onclick="showView('approval')" {% if 'approval' not in user.permissions %}hidden aria-hidden="true"{% endif %}>进入付款审批 →</button></div><div id="riskQueue" class="queue"></div></section>
     </section>
 
     <section id="ingest" class="view" data-permission="ingest" {% if 'ingest' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
@@ -138,9 +136,9 @@
     </section>
 
     <section id="ledger" class="view" data-permission="ledger" {% if 'ledger' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
-      <div class="title-row"><div><p class="eyebrow dark">AUDIT LEDGER</p><h1>全局合规台账</h1><p>只有规则全部通过且付款全付的业务会同步到台账；点击记录可展开附件与驳回历史。</p></div><div class="title-actions"><select id="ledgerSort" class="filter" aria-label="导出排序"><option value="risk_desc">风险等级优先</option><option value="risk_asc">合规业务优先</option><option value="amount_desc">金额从高到低</option><option value="updated_desc">更新时间从新到旧</option></select><a id="ledgerExport" class="primary" href="/api/export?sort=risk_desc">↓ 导出 Excel 台账</a></div></div>
+      <div class="title-row"><div><p class="eyebrow dark">AUDIT LEDGER</p><h1>全局合规台账</h1><p>只有规则全部通过且付款全付的业务会同步到台账；点击记录可展开附件与驳回历史。</p></div><div class="title-actions"><select id="ledgerSort" class="filter" aria-label="导出排序"><option value="completed_desc">完成时间从新到旧</option><option value="completed_asc">完成时间从旧到新</option><option value="amount_desc">金额从高到低</option><option value="amount_asc">金额从低到高</option></select><a id="ledgerExport" class="primary" href="/api/export?sort=completed_desc">↓ 导出 Excel 台账</a></div></div>
       <div class="ledger-banner"><span>◉</span><div><b>全额付款才入账</b><p>台账与付款状态实时同步，附件保留原始单据、新版单据和每次驳回意见。</p></div><small id="ledgerNote">—</small></div>
-      <section class="surface table-wrap"><table><thead><tr><th>台账编号</th><th>业务编号</th><th>供应商</th><th>金额</th><th>付款状态</th><th>附件</th></tr></thead><tbody id="ledgerRows"></tbody></table></section>
+      <section class="surface table-wrap"><table><thead><tr><th>台账编号</th><th>业务编号</th><th>供应商</th><th>金额</th><th>完成时间</th><th>付款状态</th><th>附件</th></tr></thead><tbody id="ledgerRows"></tbody></table></section>
     </section>
 
     <section id="admin" class="view" data-permission="admin" {% if 'admin' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
@@ -152,6 +150,6 @@
 
 <div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="业务详情"><div class="drawer-panel"><button class="close" aria-label="关闭详情" onclick="closeDrawer()">×</button><div id="drawerContent"></div></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="{{ url_for('static', filename='app.js') }}?v=20"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=22"></script>
 </body>
 </html>

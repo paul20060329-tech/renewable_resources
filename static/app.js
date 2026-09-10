@@ -216,11 +216,22 @@ function historyMarkup(record){
   return history.map(item=>{const original=item.original||item.original_documents;const revised=item.revised||item.revised_documents;return `<div class="history-item"><b>第 ${esc(item.cycle||'?')} 次驳回 · ${esc(item.rejected_code||'ALL')}</b><p>驳回意见：${esc(item.opinion||'未填写')}</p><small>驳回时间：${esc(item.rejected_at||'')}</small><div class="source-grid"><div><small>原始单据</small>${snapshotFields(original)}</div><div><small>修改后的新版单据</small>${revised?snapshotFields(revised):'<p class="empty">尚未补件</p>'}</div></div></div>`}).join('');
 }
 function attachmentMarkup(record){return `<div class="source-grid"><div><small>过磅单</small><b>${esc(record.id)}</b><p>毛重 ${number(record.gross)} Kg · 皮重 ${number(record.tare)} Kg · 净重 ${number(record.net)} Kg<br>过磅时间：${esc(record.weigh_time||'未填写')}</p></div><div><small>质检单</small><b>${esc(record.inspect_id||'缺失')}</b><p>${esc(record.spec||'未填写')} · ${esc(record.grade||'未填写')} · 扣杂 ${number(record.inspect_qty)} Kg<br>质检时间：${esc(record.inspect_time||'未填写')}</p></div><div><small>入库单</small><b>${esc(record.inbound_id||'缺失')}</b><p>入库 ${number(record.inbound_qty)} Kg<br>入库时间：${esc(record.inbound_time||'未填写')}</p></div><div><small>收款银行卡</small><b>${esc(record.bank_account_masked||localMask(record.bank_account))}</b><p>${esc(record.bank_name||'虚拟收款户名')} · ${esc(record.bank_branch||'虚拟银行支行')}</p></div></div><h4>驳回历史附件</h4>${historyMarkup(record)}`}
+function ledgerCompletedTime(record){return String(record.payment_time||record.updated_at||'').replace('T',' ')}
+function ledgerAmount(record){return Number(record.paid_amount||record.amount||0)||0}
+function sortLedgerRows(rows){
+  const sort=$('#ledgerSort')?.value||'completed_desc';
+  const sorted=rows.slice();
+  if(sort==='completed_asc') sorted.sort((a,b)=>ledgerCompletedTime(a).localeCompare(ledgerCompletedTime(b)));
+  else if(sort==='amount_asc') sorted.sort((a,b)=>ledgerAmount(a)-ledgerAmount(b));
+  else if(sort==='amount_desc') sorted.sort((a,b)=>ledgerAmount(b)-ledgerAmount(a));
+  else sorted.sort((a,b)=>ledgerCompletedTime(b).localeCompare(ledgerCompletedTime(a)));
+  return sorted;
+}
 function renderLedger(){
   if(!$('#ledgerRows'))return;
-  const rows=state.records.filter(record=>record.ledger_eligible===true);
+  const rows=sortLedgerRows(state.records.filter(record=>record.ledger_eligible===true));
   if($('#ledgerNote'))$('#ledgerNote').textContent=`当前已归档 ${rows.length} 笔`;
-  $('#ledgerRows').innerHTML=rows.map(record=>{const detailId=domId('ledger-detail',record.id);return `<tr class="ledger-row" data-ledger-id="${escAttr(record.id)}"><td>HG${esc(String(record.id||'').replace(/^GB/,''))}</td><td>${esc(record.id)}</td><td>${esc(record.supplier)}</td><td>${money(record.paid_amount||record.amount)}</td><td><span class="tag success">已付款</span></td><td><button class="view-link" type="button" aria-expanded="false" aria-controls="${detailId}" onclick="toggleLedgerAttachment(${idArg(record.id)},this)">展开附件</button></td></tr><tr id="${detailId}" class="ledger-detail-row" hidden><td colspan="6"><div class="ledger-attachments">${attachmentMarkup(record)}</div></td></tr>`}).join('')||'<tr><td colspan="6">暂无已完整付款的合规业务</td></tr>';
+  $('#ledgerRows').innerHTML=rows.map(record=>{const detailId=domId('ledger-detail',record.id);return `<tr class="ledger-row" data-ledger-id="${escAttr(record.id)}"><td>HG${esc(String(record.id||'').replace(/^GB/,''))}</td><td>${esc(record.id)}</td><td>${esc(record.supplier)}</td><td>${money(record.paid_amount||record.amount)}</td><td>${esc(ledgerCompletedTime(record)||'—')}</td><td><span class="tag success">已付款</span></td><td><button class="view-link" type="button" aria-expanded="false" aria-controls="${detailId}" onclick="toggleLedgerAttachment(${idArg(record.id)},this)">展开附件</button></td></tr><tr id="${detailId}" class="ledger-detail-row" hidden><td colspan="7"><div class="ledger-attachments">${attachmentMarkup(record)}</div></td></tr>`}).join('')||'<tr><td colspan="7">暂无已完整付款的合规业务</td></tr>';
 }
 function toggleLedgerAttachment(id,button){const detail=$(`#${domId('ledger-detail',id)}`);if(!detail)return;const open=!detail.hidden;detail.hidden=open;button.setAttribute('aria-expanded',String(!open));button.textContent=open?'展开附件':'收起附件'}
 
@@ -273,7 +284,7 @@ function closeDrawer(){$('#drawer')?.classList.remove('open')}
 document.querySelectorAll('nav a').forEach(link=>link.addEventListener('click',event=>{event.preventDefault();showView(link.dataset.view)}));
 document.querySelectorAll('.filter-row button.filter').forEach(button=>button.addEventListener('click',()=>{$$('.filter-row button.filter').forEach(item=>item.classList.remove('active'));button.classList.add('active');state.filter=button.dataset.filter;renderRecords()}));
 $('#search')?.addEventListener('input',renderRecords);
-$('#ledgerSort')?.addEventListener('change',event=>{if($('#ledgerExport'))$('#ledgerExport').href=`/api/export?sort=${encodeURIComponent(event.target.value)}`});
+$('#ledgerSort')?.addEventListener('change',event=>{const sort=encodeURIComponent(event.target.value);if($('#ledgerExport'))$('#ledgerExport').href=`/api/export?sort=${sort}`;renderLedger()});
 $('#ledgerRows')?.addEventListener('click',event=>{const target=event.target;const row=target?.closest?.('tr.ledger-row');if(!row||target?.closest?.('button'))return;const button=row.querySelector('button[aria-controls]');if(button)toggleLedgerAttachment(row.dataset.ledgerId,button)});
 $('#manualForm')?.addEventListener('input',event=>{if(event.target.name==='gross'||event.target.name==='tare'){const gross=Number($('#manualForm [name="gross"]')?.value||0),tare=Number($('#manualForm [name="tare"]')?.value||0);if($('#manualNet'))$('#manualNet').value=gross>tare?(gross-tare).toFixed(2):''}});
 $('#manualForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());try{const result=await requestJson('/api/business/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if($('#manualResult')){$('#manualResult').textContent=result.data.message||result.data.error;$('#manualResult').className=result.ok?'success-text':'error-text'}if(result.ok){toast(`${result.data.record?.id||''} 已保存`);event.target.reset();if($('#manualNet'))$('#manualNet').value='';await loadData()}}catch(error){console.error(error);toast('保存失败，请稍后重试')}});

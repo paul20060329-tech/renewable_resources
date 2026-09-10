@@ -136,3 +136,9 @@
 .pay-recent-item b{display:block;color:#fff;font-weight:600;font-size:11px}
 .pay-recent-item span{color:#8fb2a7;font-size:10px}
 .pay-recent-empty{color:#7ea094;font-size:11px;margin:8px 0 0}
+
+/* ---- 数据总览：业务处理阶段分布置顶布局 ---- */
+.stage-card{margin-bottom:24px}
+.stage-card .histo-bars{height:210px}
+.stage-card .histo-col i{max-width:96px}
+.queue-card{margin-bottom:0}
