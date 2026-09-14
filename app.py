@@ -66,7 +66,6 @@ def _pick_virtual_company_name(index):
     suffix = VIRTUAL_COMPANY_SUFFIX[(index // 2) % len(VIRTUAL_COMPANY_SUFFIX)]
     return f"X{prefix}{suffix}{index:03d}"
 
-
 DEMO_ROWS = [
     {"id":"GB202608250001","batch":"PC202608250001","supplier":"虚拟自然人赵建国001","id_no":"SIM198501010001","supplier_type":"自然人","registered":"否","plate":"虚拟车牌-001","goods":"废不锈钢","gross":12560,"tare":5820,"net":6740,"method":"一次过磅","weigher":"过磅员甲","driver":"司机甲","weigh_date":"2026-08-25","weigh_time":"2026-08-25 14:00","inspect_id":"ZJ202608250001","inspect_date":"2026-08-25","inspect_time":"2026-08-25 14:15","inbound_id":"RK202608250001","inbound_date":"2026-08-25","inbound_time":"2026-08-25 14:30","payment_time":"2026-08-26 10:00","spec":"一级统料","grade":"A级","inspect_qty":35,"inbound_qty":6705,"moisture":0.52,"price":9.8,"amount":65709,"inspector":"质检员甲","reviewer":"复核员甲","invoice":"reverse","annual":382000,"frequency":2,"bank_name":"虚拟自然人赵建国001","bank_account":"621700000000000001","bank_branch":"中国工商银行虚拟支行","status":"已付款","approval":"无需审批","paid_amount":65709},
     {"id":"GB202608290002","batch":"PC202608290002","supplier":"虚拟自然人钱志远002","id_no":"","supplier_type":"自然人","registered":"是","plate":"虚拟车牌-002","goods":"废杂铝合金","gross":9850,"tare":4650,"net":5200,"method":"二次过磅","weigher":"","driver":"司机乙","weigh_date":"2026-08-29","weigh_time":"2026-08-29 09:00","inspect_id":"ZJ202608290002","inspect_date":"2026-08-29","inspect_time":"2026-08-29 08:30","inbound_id":"RK202608290002","inbound_date":"2026-08-29","inbound_time":"2026-08-29 10:00","payment_time":"2026-08-30 10:00","spec":"破碎杂铝","grade":"C级","inspect_qty":900,"inbound_qty":4300,"moisture":8.7,"price":13.2,"amount":56760,"inspector":"质检员乙","reviewer":"","invoice":"none","annual":4960000,"frequency":8,"bank_name":"虚拟自然人钱志远002","bank_account":"621700000000000002","bank_branch":"中国农业银行虚拟分行","status":"高风险","approval":"待逐项风险处置","paid_amount":0},
@@ -294,6 +293,9 @@ def generate_document_ids():
             return business_id, batch_id
         index += 1
 
+# 是否在新库首次启动时写入演示数据（默认关闭，保持 0 条；后台按钮仍可一键恢复演示数据）。
+SEED_DEMO_ON_INIT = os.environ.get("SEED_DEMO_DATA", "0") == "1"
+
 def init_db():
     con = db()
     con.execute('''CREATE TABLE IF NOT EXISTS businesses (id TEXT PRIMARY KEY, payload TEXT NOT NULL, status TEXT NOT NULL, approval TEXT NOT NULL, updated_at TEXT NOT NULL)''')
@@ -313,7 +315,9 @@ def init_db():
             con.execute("INSERT OR IGNORE INTO local_template_state(path,mtime) VALUES(?,?)", (path, fingerprint))
         except OSError:
             continue
-    if not con.execute("SELECT 1 FROM businesses LIMIT 1").fetchone():
+    # 首次启动保持空库：业务数据一律由用户通过 Excel 导入或手动录入产生。
+    # 需要演示数据时，可设置环境变量 SEED_DEMO_DATA=1，或在后台点击「恢复演示数据」。
+    if SEED_DEMO_ON_INIT and not con.execute("SELECT 1 FROM businesses LIMIT 1").fetchone():
         now = datetime.now().isoformat(timespec="seconds")
         for item in DEMO_ROWS:
             ensure_workflow_fields(item)
@@ -551,7 +555,7 @@ def ledger_sheet_to_import_rows(ws):
         inbound_rows.append({"入库单编号": item.get("入库单号", ""), "关联过磅单编号": business_id, "入库时间": item.get("入库时间"), "入库数量 (Kg)": inbound_qty, "仓管员签字": item.get("制单人", "模板导入"), "付款时间": item.get("付款日期")})
     return weigh_rows, inspect_rows, inbound_rows
 
-def persist_imported_rows(weigh_rows, inspect_rows, inbound_rows=None):
+def persist_imported_rows(weigh_rows, inspect_rows, inbound_rows=None, stats=None):
     inspections = {str(x.get("关联过磅单编号", "")).strip(): x for x in inspect_rows}
     inbounds = {str(x.get("关联过磅单编号", "")).strip(): x for x in (inbound_rows or [])}
     con = db(); now = datetime.now().isoformat(timespec="seconds"); imported = 0
@@ -578,7 +582,18 @@ def persist_imported_rows(weigh_rows, inspect_rows, inbound_rows=None):
             settlement_value = inbound_qty
         row = {"id":business_id,"batch":str(raw.get("货物批次号", "")),"supplier":str(raw.get("供货方名称", "")),"supplier_type":str(raw.get("供货方类别", "自然人")) or "自然人","id_no":str(raw.get("供货方身份证号", "")),"registered":str(raw.get("个体户登记标记", "否")),"plate":str(raw.get("车牌号", "")),"goods":str(raw.get("货物品名", "")),"gross":gross,"tare":tare,"net":net,"method":str(raw.get("过磅方式", "")),"weigher":str(raw.get("过磅员签字", "")),"driver":str(raw.get("司机签字", "")),"weigh_date":business_date,"weigh_time":fmt_datetime(raw.get("过磅时间")),"inspect_id":str(quality.get("质检单编号", "")),"inspect_date":clean_date(quality.get("质检时间") or quality.get("质检日期"), fallback=""),"inspect_time":fmt_datetime(quality.get("质检时间") or quality.get("质检日期")),"inspect_goods":str(quality.get("货物品名", "")),"inbound_id":str(inbound.get("入库单编号", "")),"inbound_date":clean_date(inbound.get("入库时间"), fallback=""),"inbound_time":fmt_datetime(inbound.get("入库时间")),"inbound_goods":str(inbound.get("货物品名", "")),"payment_time":fmt_datetime(inbound.get("付款时间") or raw.get("付款时间")),"spec":str(quality.get("货品规格", "")),"grade":str(quality.get("质检等级", "")),"inspect_qty":deduct,"inbound_qty":inbound_qty,"settlement_qty":settlement_value,"moisture":clean_number(quality.get("含水率 / 杂质率")),"price":price,"amount":amount or round(settlement_value * price, 2),"inspector":str(quality.get("质检员签字", "")),"reviewer":str(quality.get("复核人签字", quality.get("复核人签字", ""))),"invoice":"reverse" if "反向" in str(quality.get("票据合规方式", "")) else "self" if "代开" in str(quality.get("票据合规方式", "")) else "none","annual":0,"frequency":0,"bank_name":str(raw.get("收款户名", raw.get("供货方名称", ""))),"bank_account":str(raw.get("银行卡号", "")),"bank_branch":str(raw.get("开户行", "")),"status":"待核验","approval":"无需审批","verified":False,"review_cycle":1,"risk_decisions":{},"paid_amount":0}
         add_security_fields(row)
-        is_risk = any(not item["passed"] for item in check(row))
+        checks = check(row)
+        is_risk = any(not item["passed"] for item in checks)
+        if stats is not None:
+            if is_risk:
+                level = assess_risk(checks, row)["level"]
+                stats["risk"] = stats.get("risk", 0) + 1
+                stats["levels"][level] = stats["levels"].get(level, 0) + 1
+            else:
+                stats["passed"] = stats.get("passed", 0) + 1
+            if quality: stats["matched_inspect"] = stats.get("matched_inspect", 0) + 1
+            if inbound: stats["matched_inbound"] = stats.get("matched_inbound", 0) + 1
+            if row.get("integrity_hash"): stats["hashed"] = stats.get("hashed", 0) + 1
         if is_risk:
             status, approval = "高风险", "待逐项风险处置"
         else:
@@ -900,9 +915,10 @@ def upload():
                 elif "关联过磅单编号" in headers: inspect_rows += first
         except Exception: return jsonify({"error":f"无法读取 {f.filename}，请使用标准 .xlsx 模板"}),400
     if not weigh_rows: return jsonify({"error":"未识别到过磅单数据。请使用下载的标准模板。"}),400
-    count = persist_imported_rows(weigh_rows, inspect_rows, inbound_rows)
+    stats = {"passed": 0, "risk": 0, "levels": {}, "matched_inspect": 0, "matched_inbound": 0, "hashed": 0}
+    count = persist_imported_rows(weigh_rows, inspect_rows, inbound_rows, stats=stats)
     con=db(); con.execute("INSERT INTO import_jobs(filename,rows_count,result,created_at) VALUES(?,?,?,?)", ("、".join(filenames),count,"已入库并执行9项规则",datetime.now().isoformat(timespec="seconds")));con.commit();con.close()
-    return jsonify({"ok":True,"count":count,"weigh":len(weigh_rows),"inspect":len(inspect_rows),"inbound":len(inbound_rows),"message":f"成功写入 {count} 笔业务，已自动匹配质检单、入库单并完成合规核验。"})
+    return jsonify({"ok":True,"count":count,"weigh":len(weigh_rows),"inspect":len(inspect_rows),"inbound":len(inbound_rows),"stats":stats,"message":f"成功写入 {count} 笔业务，已自动匹配质检单、入库单并完成合规核验。"})
 
 @app.delete("/api/import-history")
 def clear_import_history():
@@ -979,6 +995,18 @@ def reset_demo():
     if denied: return denied
     reset_demo_data()
     return jsonify({"ok": True, "message": "演示数据已恢复：100 条全虚拟业务（自然人 90%、公司 10%），含风险、审批和已付款示例。"})
+
+@app.post("/api/admin/clear-data")
+def clear_business_data():
+    """清空全部业务数据，回到 0 条的初始状态（不影响规则、账号与本地模板指纹）。"""
+    denied = require_permission("admin")
+    if denied: return denied
+    con = db()
+    count = con.execute("SELECT COUNT(*) FROM businesses").fetchone()[0]
+    con.execute("DELETE FROM businesses")
+    con.execute("DELETE FROM import_jobs")
+    con.commit(); con.close()
+    return jsonify({"ok": True, "count": count, "message": f"已清空 {count} 笔业务数据，可重新导入 Excel。"})
 
 @app.get("/api/export")
 def export():

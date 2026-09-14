@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>绿循智审 · 合规运营平台</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=21">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=27">
   <style>
     .bank-account{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--green);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
     .bank-account button{width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:50%;background:#f3f8f5;color:var(--green);font-size:13px;line-height:1}
@@ -142,14 +142,29 @@
     </section>
 
     <section id="admin" class="view" data-permission="admin" {% if 'admin' not in user.permissions %}hidden aria-hidden="true"{% endif %}>
-      <div class="title-row"><div><p class="eyebrow dark">SYSTEM ADMINISTRATION</p><h1>后台管理</h1><p>管理规则、账号角色及本地数据服务状态。</p></div><button class="secondary" onclick="resetDemo()">↻ 恢复演示数据</button></div>
+      <div class="title-row"><div><p class="eyebrow dark">SYSTEM ADMINISTRATION</p><h1>后台管理</h1><p>管理规则、账号角色及本地数据服务状态。</p></div><div class="title-actions"><button class="secondary" onclick="clearBusinessData()">✕ 清空业务数据</button></div></div>
       <div class="admin-summary" id="adminSummary"></div><div class="grid-two"><section class="surface"><div class="surface-head"><div><span class="caption">RULE CONFIGURATION</span><h2>合规规则清单</h2></div></div><div id="adminRules"></div></section><section class="surface"><div class="surface-head"><div><span class="caption">USER ROLES</span><h2>账号与权限</h2></div></div><div id="adminAccounts"></div></section></div>
     </section>
   </main>
 </div>
 
+<div id="importModal" class="import-modal" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+  <div class="import-modal-panel">
+    <div class="import-modal-head">
+      <div><span class="caption">IMPORT PIPELINE</span><h2 id="importModalTitle">正在导入并核验业务单据</h2></div>
+      <div class="import-modal-tools"><span class="tag neutral" id="importModalBadge">准备中</span><button class="import-modal-x" type="button" aria-label="关闭导入进度" title="关闭" onclick="closeImportModal()">×</button></div>
+    </div>
+    <div class="import-progress-row"><span id="importModalStage">正在准备</span><b id="importModalPercent">0%</b></div>
+    <div class="import-progress"><i id="importProgressBar"></i></div>
+    <ol class="import-steps" id="importSteps"></ol>
+    <div class="import-modal-foot">
+      <small id="importModalNote">正在处理，请勿关闭页面</small>
+      <button class="primary" id="importModalClose" type="button" hidden onclick="closeImportModal()">完成</button>
+    </div>
+  </div>
+</div>
 <div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="业务详情"><div class="drawer-panel"><button class="close" aria-label="关闭详情" onclick="closeDrawer()">×</button><div id="drawerContent"></div></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="{{ url_for('static', filename='app.js') }}?v=22"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=27"></script>
 </body>
 </html>

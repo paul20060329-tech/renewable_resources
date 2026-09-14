@@ -135,6 +135,43 @@
 .pay-recent-item{padding:9px 0 0;margin-top:9px;border-top:1px dashed #315751}
 .pay-recent-item b{display:block;color:#fff;font-weight:600;font-size:11px}
 .pay-recent-item span{color:#8fb2a7;font-size:10px}
+/* ---- 导入流水线弹窗（可视化分步） ---- */
+.import-modal{position:fixed;inset:0;background:#163b3a55;display:none;align-items:center;justify-content:center;z-index:20}
+.import-modal.open{display:flex}
+.import-modal-panel{width:min(640px,92vw);max-height:88vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 22px 60px rgba(20,50,40,.2);padding:26px 28px 20px;animation:importPop .28s ease}
+.import-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.import-modal-tools{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.import-modal-x{width:30px;height:30px;padding:0;border-radius:50%;background:#f1f5f3;color:#6b7f78;font-size:19px;line-height:1;display:grid;place-items:center}
+.import-modal-x:hover{background:#e4efe9;color:var(--green)}
+.import-modal-head h2{font-size:19px;margin:6px 0 0}
+.import-progress-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:14px 0 8px}
+.import-progress-row span{font-size:11px;color:var(--muted)}
+.import-progress-row b{font-size:16px;color:var(--green);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:-.3px}
+.import-progress{height:6px;border-radius:6px;background:#e8f0ec;overflow:hidden}
+.import-progress i{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#2f9c74,#63c69d);transition:width .45s ease}
+.import-steps{list-style:none;margin:12px 0 0;padding:0}
+.import-step{display:grid;grid-template-columns:28px 1fr auto;gap:13px;align-items:start;padding:12px 0;border-top:1px solid #f0f4f2;opacity:.5;transition:opacity .25s ease}
+.import-step:first-child{border-top:0}
+.import-step.reached{opacity:1}
+.import-step .dot{position:relative;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#eef4f1;color:#8aa79c;font-size:12px;font-weight:700;transition:background .25s ease,color .25s ease}
+.import-step.active .dot{background:var(--green);color:#fff}
+.import-step.active .dot::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid #d3ecdf;border-top-color:var(--green);animation:importSpin .8s linear infinite}
+.import-step.done .dot{background:#dff3e9;color:var(--green)}
+.import-step.fail .dot{background:#fdebe8;color:var(--red)}
+.import-step b{display:block;font-size:13px}
+.import-step p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.6}
+.import-step .meta{font-size:11px;color:#536d63;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;padding-top:3px}
+.import-step.fail .meta{color:var(--red)}
+.import-modal-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);margin-top:16px;padding-top:15px}
+.import-modal-foot small{color:var(--muted);font-size:11px}
+.import-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 0}
+.import-summary div{background:#f5f9f7;border:1px solid #e6efe9;border-radius:7px;padding:11px 12px}
+.import-summary small{display:block;color:var(--muted);font-size:10px}
+.import-summary b{display:block;font-size:19px;margin:5px 0 2px;letter-spacing:-.3px}
+.import-summary span{font-size:10px;color:var(--green)}
+@keyframes importPop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes importSpin{to{transform:rotate(360deg)}}
+@media(max-width:560px){.import-step{grid-template-columns:24px 1fr}.import-step .meta{grid-column:2;padding-top:0}.import-summary{grid-template-columns:1fr}}
 .pay-recent-empty{color:#7ea094;font-size:11px;margin:8px 0 0}
 
 /* ---- 数据总览：业务处理阶段分布置顶布局 ---- */

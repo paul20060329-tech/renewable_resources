@@ -257,6 +257,7 @@ async function approveBiz(id){const ok=await action(`/api/business/${encodeURICo
 async function pay(id){const ok=await action(`/api/business/${encodeURIComponent(id)}/pay`);if(ok)closeDrawer()}
 async function rejectAll(id){const ok=await action(`/api/business/${encodeURIComponent(id)}/reject`,'POST',{opinion:'风险业务一键驳回，退回补件'});if(ok)closeDrawer()}
 async function rejectRisk(id,code){const ok=await action(`/api/business/${encodeURIComponent(id)}/risk/${encodeURIComponent(code)}/reject`,'POST',{opinion:'未通过风险项，退回补件'});if(ok)closeDrawer()}
+async function clearBusinessData(){if(!confirm('确定清空全部业务数据吗？清空后仅能通过重新导入 Excel 恢复。'))return;await action('/api/admin/clear-data')}
 async function clearImportHistory(){await action('/api/import-history','DELETE')}
 async function syncLocalTemplate(){await action('/api/local-sync')}
 function toggleBank(id,button){const record=state.records.find(item=>String(item.id)===String(id));if(!record)return;const element=$(`#${domId('bank',id)}`);if(!element)return;const open=button.dataset.open==='1';element.textContent=open?(record.bank_account_masked||localMask(record.bank_account)):(record.bank_account||'未填写');button.dataset.open=open?'0':'1';button.setAttribute('aria-pressed',String(!open));button.title=open?'查看完整银行卡号':'隐藏银行卡号';button.textContent=open?'◉':'◎'}
@@ -288,7 +289,129 @@ $('#ledgerSort')?.addEventListener('change',event=>{const sort=encodeURIComponen
 $('#ledgerRows')?.addEventListener('click',event=>{const target=event.target;const row=target?.closest?.('tr.ledger-row');if(!row||target?.closest?.('button'))return;const button=row.querySelector('button[aria-controls]');if(button)toggleLedgerAttachment(row.dataset.ledgerId,button)});
 $('#manualForm')?.addEventListener('input',event=>{if(event.target.name==='gross'||event.target.name==='tare'){const gross=Number($('#manualForm [name="gross"]')?.value||0),tare=Number($('#manualForm [name="tare"]')?.value||0);if($('#manualNet'))$('#manualNet').value=gross>tare?(gross-tare).toFixed(2):''}});
 $('#manualForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());try{const result=await requestJson('/api/business/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if($('#manualResult')){$('#manualResult').textContent=result.data.message||result.data.error;$('#manualResult').className=result.ok?'success-text':'error-text'}if(result.ok){toast(`${result.data.record?.id||''} 已保存`);event.target.reset();if($('#manualNet'))$('#manualNet').value='';await loadData()}}catch(error){console.error(error);toast('保存失败，请稍后重试')}});
-$('#importForm')?.addEventListener('submit',async event=>{event.preventDefault();const files=$('#files')?.files;if(!files?.length){toast('请先选择 Excel 文件');return}const formData=new FormData();Array.from(files).forEach(file=>formData.append('files',file));try{const result=await requestJson('/api/import',{method:'POST',body:formData});if($('#importResult')){$('#importResult').textContent=result.data.message||result.data.error;$('#importResult').className=result.ok?'success-text':'error-text'}if(result.ok){toast(`已导入 ${result.data.count||0} 笔业务`);await loadData()}}catch(error){console.error(error);toast('导入失败，请稍后重试')}});
+/* ---------- 导入流水线：可视化分步执行 ---------- */
+const IMPORT_STEPS=[
+  {title:'建立文件读取通道',note:'校验 .xlsx 格式，载入工作簿对象并锁定文件'},
+  {title:'解析工作表结构',note:'识别过磅单 / 质检单 / 入库单 表头字段与数据行'},
+  {title:'自动匹配三单关联',note:'按业务编号与时间链关联过磅、质检、入库单据'},
+  {title:'写入合规数据库',note:'SQLite 事务提交，生成业务主记录与三单快照'},
+  {title:'执行 9 项合规规则核验',note:'时间链、数量链、票据方式、交易频次与限额、定价一致性'},
+  {title:'生成 SHA-256 数据指纹',note:'整单摘要留痕，便于发现数据被事后修改'}
+];
+const IMPORT_STEP_MS=[520,620,560,640,880,520];
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+let importRunning=false;
+
+function importStepMeta(index,ctx){
+  if(index===0)return `${ctx.files} 个文件 · ${ctx.kb} KB`;
+  if(!ctx.ready)return '处理中';
+  if(index===1)return `${ctx.weigh} / ${ctx.inspect} / ${ctx.inbound} 行`;
+  if(index===2)return `质检 ${ctx.matched_inspect} · 入库 ${ctx.matched_inbound}`;
+  if(index===3)return `${ctx.count} 笔主记录`;
+  if(index===4)return `通过 ${ctx.passed} · 风险 ${ctx.risk}`;
+  return `${ctx.hashed} 条指纹`;
+}
+function renderImportSteps(activeIndex,ctx,status='run',failedIndex=-1){
+  const list=$('#importSteps');if(!list)return;
+  list.innerHTML=IMPORT_STEPS.map((step,index)=>{
+    const state_=index<activeIndex?'done':index===activeIndex?(status==='fail'?'fail':'active'):'pending';
+    const reached=index<=activeIndex?'reached':'';
+    const meta=index<activeIndex||index===activeIndex?importStepMeta(index,ctx):'排队中';
+    const icon=state_==='done'?'✓':state_==='fail'?'!':index+1;
+    return `<li class="import-step ${state_} ${reached}"><span class="dot">${icon}</span><div><b>${index+1}. ${esc(step.title)}</b><p>${esc(step.note)}</p></div><span class="meta">${esc(meta)}</span></li>`;
+  }).join('');
+}
+function setImportBadge(text,cls){const badge=$('#importModalBadge');if(!badge)return;badge.textContent=text;badge.className=`tag ${cls||'neutral'}`}
+function setImportProgress(percent){
+  const bar=$('#importProgressBar'),label=$('#importModalPercent');
+  const value=Math.max(0,Math.min(100,Math.round(percent)));
+  if(bar)bar.style.width=`${value}%`;
+  if(label)label.textContent=`${value}%`;
+}
+function setImportStage(text){const stage=$('#importModalStage');if(stage)stage.textContent=text}
+// 百分比在每一步内平滑推进，而不是步末跳变。
+async function animateImportStep(index,total){
+  const start=Math.round(index/total*100),end=Math.round((index+1)/total*100);
+  const duration=IMPORT_STEP_MS[index],frames=Math.max(6,Math.round(duration/80));
+  for(let frame=1;frame<=frames;frame++){
+    setImportProgress(start+(end-start)*frame/frames);
+    await sleep(Math.round(duration/frames));
+  }
+  setImportProgress(end);
+}
+// 点击右上角 × 立即关闭，不做任何二次确认；后台写入不受影响。
+function closeImportModal(){$('#importModal')?.classList.remove('open')}
+function importSummaryMarkup(ctx){
+  const levels=ctx.levels||{};
+  const levelText=Object.entries(levels).map(([level,count])=>`${level} ${count}`).join(' · ')||'无';
+  return `<div class="import-summary"><div><small>写入业务</small><b>${number(ctx.count)}</b><span>笔</span></div><div><small>规则全通过</small><b>${number(ctx.passed)}</b><span>笔</span></div><div><small>触发风险</small><b>${number(ctx.risk)}</b><span>${esc(levelText)}</span></div></div>`;
+}
+async function runImportPipeline(formData,fileList){
+  importRunning=true;
+  const files=Array.from(fileList||[]);
+  const ctx={files:files.length,kb:Math.max(1,Math.round(files.reduce((sum,file)=>sum+(file.size||0),0)/1024)),weigh:0,inspect:0,inbound:0,count:0,passed:0,risk:0,levels:{},matched_inspect:0,matched_inbound:0,hashed:0,ready:false};
+  const submit=$('#importForm button[type="submit"]');if(submit)submit.disabled=true;
+  closeImportModal();$('#importModal')?.classList.add('open');
+  $('#importModalClose')&&($('#importModalClose').hidden=true);
+  $('#importModalNote')&&($('#importModalNote').textContent='导入进行中，完成后需手动关闭本窗口');
+  $('#importModalTitle')&&($('#importModalTitle').textContent='正在导入并核验业务单据');
+  const summary=$('#importSummaryHost');if(summary)summary.remove();
+  setImportBadge('准备中','neutral');setImportProgress(0);setImportStage('正在建立文件读取通道');
+  renderImportSteps(0,ctx);
+
+  let settled=false,result=null;
+  const upload=requestJson('/api/import',{method:'POST',body:formData}).then(value=>{
+    const data=value.data||{};const stats=data.stats||{};
+    ctx.weigh=data.weigh||0;ctx.inspect=data.inspect||0;ctx.inbound=data.inbound||0;ctx.count=data.count||0;
+    ctx.passed=stats.passed||0;ctx.risk=stats.risk||0;ctx.levels=stats.levels||{};
+    ctx.matched_inspect=stats.matched_inspect||0;ctx.matched_inbound=stats.matched_inbound||0;ctx.hashed=stats.hashed||0;
+    ctx.ready=true;ctx.ok=value.ok!==false;ctx.message=data.message||data.error||'';settled=true;result=value;return value;
+  }).catch(error=>{console.error(error);ctx.ready=true;ctx.ok=false;ctx.message='导入失败，请稍后重试';settled=true;result={ok:false,data:{error:ctx.message}};return result});
+
+  for(let index=0;index<IMPORT_STEPS.length;index++){
+    renderImportSteps(index,ctx);
+    setImportBadge(`第 ${index+1} / ${IMPORT_STEPS.length} 步`,'neutral');
+    setImportStage(IMPORT_STEPS[index].title);
+    await animateImportStep(index,IMPORT_STEPS.length);
+    // 涉及真实结果的步骤必须等到服务端返回后再标记完成，避免进度条与数据不符。
+    let waited=0;while(!settled&&waited<8000){await sleep(120);waited+=120}
+    if(settled&&!ctx.ok){
+      setImportStage('导入失败');
+      renderImportSteps(index,ctx,'fail',index);
+      setImportBadge('导入失败','danger');
+      $('#importModalNote')&&($('#importModalNote').textContent=ctx.message||'导入失败');
+      $('#importModalClose')&&($('#importModalClose').hidden=false);
+      finishImportTodo(result,submit);return;
+    }
+    const next=$('.import-step.pending');if(next)next.classList.add('reached');
+  }
+  await upload;
+  renderImportSteps(IMPORT_STEPS.length,ctx);
+  setImportProgress(100);setImportBadge('导入成功','success');setImportStage('导入成功，正在收尾');
+  $('#importModalTitle')&&($('#importModalTitle').textContent='导入成功');
+  $('#importModalNote')&&($('#importModalNote').textContent=ctx.message||'已完成导入与合规核验');
+  const steps=$('#importSteps');
+  if(steps)steps.insertAdjacentHTML('afterend',`<div id="importSummaryHost">${importSummaryMarkup(ctx)}</div>`);
+  toast(`已导入 ${ctx.count} 笔业务`);
+  // 不自动关闭：由用户点击右上角 ×（或「完成」按钮）手动退出，便于逐项核对步骤与数据。
+  $('#importModalNote')&&($('#importModalNote').textContent=`${ctx.message||'导入已完成'} · 核对无误后点击右上角 × 关闭`);
+  finishImportTodo(result,submit);
+}
+function finishImportTodo(result,submit){
+  if(submit)submit.disabled=false;
+  importRunning=false;
+  const box=$('#importResult');
+  if(box&&result){box.textContent=result.data?.message||result.data?.error||'';box.className=result.ok?'success-text':'error-text'}
+  loadData();
+}
+$('#importForm')?.addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(importRunning){toast('已有导入任务正在执行');return}
+  const files=$('#files')?.files;
+  if(!files?.length){toast('请先选择 Excel 文件');return}
+  const formData=new FormData();Array.from(files).forEach(file=>formData.append('files',file));
+  await runImportPipeline(formData,files);
+});
 $('#drawer')?.addEventListener('click',event=>{if(event.target.id==='drawer')closeDrawer()});
 loadData();
 setInterval(()=>{if(document.visibilityState==='visible')loadData()},5000);
