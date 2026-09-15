@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>System Admin · 访问审计台</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121821; --panel-2:#161d28; --line:#22303f;
+      --text:#e6edf5; --muted:#8b9bad; --accent:#3fb950; --accent-2:#58a6ff;
+      --warn:#d29922; --danger:#f85149; --radius:10px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font:14px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+    a{color:var(--accent-2);text-decoration:none}
+    code,.mono{font-family:ui-monospace,Consolas,"Courier New",monospace}
+
+    /* ---------- 登录页 ---------- */
+    .gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .gate-card{width:100%;max-width:400px;background:var(--panel);border:1px solid var(--line);
+      border-radius:14px;padding:34px 32px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    .gate-badge{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.14em;
+      color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:5px 12px;margin-bottom:20px}
+    .gate-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+    .gate-card h1{margin:0 0 6px;font-size:22px;letter-spacing:.01em}
+    .gate-card p.sub{margin:0 0 22px;color:var(--muted);font-size:13px}
+    .gate-card label{display:block;margin-bottom:14px;font-size:12px;color:var(--muted);letter-spacing:.04em}
+    .gate-card input{width:100%;margin-top:7px;padding:11px 13px;background:var(--panel-2);
+      border:1px solid var(--line);border-radius:var(--radius);color:var(--text);font-size:14px;outline:none}
+    .gate-card input:focus{border-color:var(--accent-2)}
+    .gate-card button{width:100%;margin-top:8px;padding:12px;background:var(--accent);color:#04170a;
+      border:0;border-radius:var(--radius);font-size:14px;font-weight:600;cursor:pointer}
+    .gate-card button:hover{filter:brightness(1.08)}
+    .gate-err{margin-bottom:14px;padding:10px 13px;border-radius:var(--radius);
+      background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.4);color:#ff9c96;font-size:13px}
+    .gate-foot{margin-top:18px;font-size:11px;color:var(--muted);text-align:center;line-height:1.7}
+
+    /* ---------- 主界面 ---------- */
+    header.top{position:sticky;top:0;z-index:10;background:rgba(11,15,20,.92);
+      backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 24px;
+      display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:600}
+    .brand .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#3fb950,#1f6feb);
+      display:grid;place-items:center;font-size:12px;color:#05130a;font-weight:800}
+    .brand small{display:block;font-weight:400;font-size:11px;color:var(--muted);letter-spacing:.1em}
+    .top-meta{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--muted)}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:4px 11px;color:var(--muted)}
+    .pill.ok{color:var(--accent);border-color:rgba(63,185,80,.4)}
+    .btn{padding:7px 14px;border-radius:var(--radius);border:1px solid var(--line);
+      background:var(--panel-2);color:var(--text);cursor:pointer;font-size:12.5px}
+    .btn:hover{border-color:var(--accent-2)}
+    .btn.primary{background:var(--accent);color:#04170a;border-color:transparent;font-weight:600}
+
+    main{padding:22px 24px 60px;max-width:1560px;margin:0 auto}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
+    .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+    .kpi span{display:block;font-size:11.5px;color:var(--muted);letter-spacing:.06em;margin-bottom:8px}
+    .kpi b{font-size:26px;font-weight:650;letter-spacing:-.01em}
+    .kpi b.accent{color:var(--accent)} .kpi b.blue{color:var(--accent-2)} .kpi b.warn{color:var(--warn)}
+
+    .grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;margin-bottom:20px}
+    @media(max-width:1080px){.grid2{grid-template-columns:1fr}}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+    .card h3{margin:0 0 14px;font-size:13px;font-weight:600;color:var(--muted);
+      letter-spacing:.08em;text-transform:uppercase}
+    .bars{display:flex;align-items:flex-end;gap:6px;height:130px}
+    .bar{flex:1;background:linear-gradient(180deg,var(--accent-2),rgba(88,166,255,.25));
+      border-radius:4px 4px 0 0;min-height:3px;position:relative}
+    .bar:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;
+      transform:translateX(-50%);background:#000;border:1px solid var(--line);color:var(--text);
+      font-size:11px;padding:4px 8px;border-radius:6px;white-space:nowrap;z-index:5}
+    .bar-labels{display:flex;gap:6px;margin-top:7px;font-size:10px;color:var(--muted)}
+    .bar-labels span{flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rank{list-style:none;margin:0;padding:0;font-size:12.5px}
+    .rank li{display:flex;justify-content:space-between;gap:10px;padding:7px 0;
+      border-bottom:1px dashed var(--line)}
+    .rank li:last-child{border-bottom:0}
+    .rank .mono{color:var(--text)}
+    .rank em{font-style:normal;color:var(--accent);font-variant-numeric:tabular-nums}
+
+    .filterbar{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+      padding:14px 16px;margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+    .filterbar label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--muted);letter-spacing:.05em}
+    .filterbar input,.filterbar select{background:var(--panel-2);border:1px solid var(--line);
+      border-radius:8px;color:var(--text);padding:8px 10px;font-size:13px;min-width:130px;outline:none}
+    .filterbar input:focus,.filterbar select:focus{border-color:var(--accent-2)}
+    .filterbar .spacer{flex:1}
+
+    table{width:100%;border-collapse:collapse;font-size:12.5px}
+    thead th{text-align:left;padding:10px 10px;color:var(--muted);font-weight:600;font-size:11px;
+      letter-spacing:.06em;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;background:var(--panel)}
+    tbody td{padding:9px 10px;border-bottom:1px solid rgba(34,48,63,.5);vertical-align:top}
+    tbody tr:hover{background:rgba(88,166,255,.05)}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid var(--line)}
+    .tag.ip{color:var(--accent-2);border-color:rgba(88,166,255,.35)}
+    .tag.user{color:var(--accent);border-color:rgba(63,185,80,.35)}
+    .tag.login{color:var(--warn);border-color:rgba(210,153,34,.4);background:rgba(210,153,34,.08)}
+    .code2{color:#7ee787}.code3{color:var(--warn)}.code4,.code5{color:var(--danger)}
+    .path{color:var(--text);word-break:break-all}
+    .muted{color:var(--muted);font-size:11.5px}
+    .empty{padding:40px;text-align:center;color:var(--muted)}
+    .pager{display:flex;justify-content:space-between;align-items:center;gap:12px;
+      margin-top:14px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+    .pager .pages{display:flex;gap:6px;align-items:center}
+    .ua{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+    .hint{font-size:11.5px;color:var(--muted);margin:-6px 0 12px}
+  </style>
+</head>
+<body>
+
+{% if not authed %}
+<div class="gate">
+  <form class="gate-card" method="post" autocomplete="off">
+    <div class="gate-badge"><span class="gate-dot"></span> SYSTEM ADMIN / 访问审计</div>
+    <h1>后台审计台</h1>
+    <p class="sub">仅限系统管理员访问，用于查看网站访客来源与登录行为。本入口独立于业务系统。</p>
+    {% if error %}<div class="gate-err">{{ error }}</div>{% endif %}
+    <label>管理员密钥
+      <input name="password" type="password" placeholder="请输入 SYSTEM_ADMIN_PASSWORD" autocomplete="current-password" required>
+    </label>
+    <button type="submit">进入审计台 →</button>
+    <p class="gate-foot">本次访问来源 IP 与时间将被记录<br>受控入口 · 请勿外传</p>
+  </form>
+</div>
+
+{% else %}
+
+<header class="top">
+  <div class="brand">
+    <span class="logo">SA</span>
+    <div>System Admin<small>ACCESS AUDIT CONSOLE</small></div>
+  </div>
+  <div class="top-meta">
+    <span class="pill {{ 'ok' if backend.startswith('PostgreSQL') else '' }}">{{ backend }}</span>
+    <span class="pill ok">持久化 {{ '已启用' if backend.startswith('PostgreSQL') else '本地文件' }}</span>
+    <span>当前时间 {{ now }}</span>
+    <form method="post" action="{{ url_for('system_admin_logout') }}" style="display:inline">
+      <button class="btn" type="submit">退出</button>
+    </form>
+  </div>
+</header>
+
+<main>
+  <div class="kpis">
+    <div class="kpi"><span>累计访问请求</span><b class="blue">{{ stats.total }}</b></div>
+    <div class="kpi"><span>独立访客 IP</span><b class="accent">{{ stats.unique_ip }}</b></div>
+    <div class="kpi"><span>登录用户数</span><b>{{ stats.unique_user }}</b></div>
+    <div class="kpi"><span>今日访问</span><b class="warn">{{ stats.today }}</b></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>近 {{ days }} 天访问趋势</h3>
+      {% if stats.trend %}
+        {% set maxv = stats.trend | map(attribute='count') | max %}
+        <div class="bars">
+          {% for t in stats.trend %}
+            <div class="bar" style="height:{{ (t.count / maxv * 100) | round(1) if maxv else 3 }}%"
+                 data-tip="{{ t.date }} · {{ t.count }} 次"></div>
+          {% endfor %}
+        </div>
+        <div class="bar-labels">
+          {% for t in stats.trend %}<span>{{ t.date[5:] }}</span>{% endfor %}
+        </div>
+      {% else %}<div class="empty">暂无数据</div>{% endif %}
+    </div>
+
+    <div class="card">
+      <h3>最近登录记录</h3>
+      {% if stats.recent_logins %}
+        <ul class="rank">
+          {% for l in stats.recent_logins %}
+          <li>
+            <span><span class="tag user">{{ l.username or '未登录' }}</span>
+              <span class="mono muted">{{ l.ip }}</span></span>
+            <em class="muted">{{ l.visited_at }}</em>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}<div class="empty">暂无登录记录</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>访问最多的 IP</h3>
+      {% if stats.top_ips %}
+        <ul class="rank">
+          {% for t in stats.top_ips %}
+          <li><span class="mono">{{ t.ip }}</span>
+            <span><span class="muted">{{ t.location }}</span> <em>{{ t.count }}</em></span></li>
+          {% endfor %}
+        </ul>
+      {% else %}<div class="empty">暂无数据</div>{% endif %}
+    </div>
+    <div class="card">
+      <h3>最活跃用户</h3>
+      {% if stats.top_users %}
+        <ul class="rank">
+          {% for t in stats.top_users %}
+          <li><span>{{ t.username }}</span><em>{{ t.count }}</em></li>
+          {% endfor %}
+        </ul>
+      {% else %}<div class="empty">暂无数据</div>{% endif %}
+    </div>
+  </div>
+
+  <form class="filterbar" method="get">
+    <label>访客 IP
+      <input name="ip" value="{{ filters.ip }}" placeholder="精确匹配，如 1.2.3.4" list="iplist">
+      <datalist id="iplist">{% for v in ip_options %}<option value="{{ v }}">{% endfor %}</datalist>
+    </label>
+    <label>登录用户
+      <input name="username" value="{{ filters.username }}" placeholder="如 后台管理员" list="userlist">
+      <datalist id="userlist">{% for v in user_options %}<option value="{{ v }}">{% endfor %}</datalist>
+    </label>
+    <label>关键词
+      <input name="keyword" value="{{ filters.keyword }}" placeholder="路径 / UA 模糊匹配">
+    </label>
+    <label>起始日期
+      <input name="date_from" type="date" value="{{ filters.date_from }}">
+    </label>
+    <label>结束日期
+      <input name="date_to" type="date" value="{{ filters.date_to }}">
+    </label>
+    <label>每页
+      <select name="page_size">
+        {% for n in [20,50,100,200] %}
+        <option value="{{ n }}" {{ 'selected' if page_size == n }}>{{ n }} 条</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>&nbsp;
+      <span><input type="checkbox" name="only_login" value="1" {{ 'checked' if filters.only_login }} style="width:auto;min-width:0"> 仅登录</span>
+    </label>
+    <div class="spacer"></div>
+    <button class="btn primary" type="submit">查询</button>
+    <a class="btn" href="{{ url_for('system_admin_home') }}">重置</a>
+  </form>
+
+  <div class="card" style="padding:0;overflow:auto">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:150px">访问时间 (UTC)</th>
+          <th style="width:130px">访客 IP</th>
+          <th style="width:110px">登录用户</th>
+          <th style="width:60px">方法</th>
+          <th>请求地址</th>
+          <th style="width:60px">状态</th>
+          <th style="width:230px">User-Agent</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="mono muted">{{ r.visited_at }}</td>
+          <td><span class="tag ip">{{ r.ip }}</span><div class="muted">{{ r.location }}</div></td>
+          <td>
+            {% if r.username %}<span class="tag user">{{ r.username }}</span>
+              <div class="muted">{{ r.role or '' }}</div>
+            {% elif r.is_login %}<span class="tag login">登录事件</span>
+            {% else %}<span class="muted">未登录</span>{% endif %}
+          </td>
+          <td class="mono">{{ r.method }}</td>
+          <td class="path">
+            {{ r.path }}
+            {% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}
+          </td>
+          <td class="mono code{{ (r.status_code or 0) // 100 }}">{{ r.status_code or '' }}</td>
+          <td><span class="ua muted" title="{{ r.user_agent }}">{{ r.user_agent }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">没有符合条件的访问记录</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pager">
+    <div>共 <b>{{ total }}</b> 条记录 · 第 {{ page }} / {{ total_pages }} 页</div>
+    <div class="pages">
+      {% if page > 1 %}
+        <a class="btn" href="{{ page_url(page - 1) }}">‹ 上一页</a>
+      {% endif %}
+      {% if page < total_pages %}
+        <a class="btn" href="{{ page_url(page + 1) }}">下一页 ›</a>
+      {% endif %}
+    </div>
+  </div>
+  <p class="hint">时间统一为 UTC。X-Forwarded-For 由 Render 反向代理注入，取最左侧公网地址作为真实访客 IP。</p>
+</main>
+
+{% endif %}
+</body>
+</html>

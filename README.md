@@ -39,6 +39,22 @@ python simulate/regenerate_demo_data.py
 2. 在 Render 选择 **New +** → **Blueprint**，连接该仓库。
 3. Render 会读取 `render.yaml` 并自动安装、启动。
 4. 免费实例休眠后首次访问会有短暂冷启动；比赛正式使用建议本地运行或使用付费实例。
+5. 在 Render 控制台的 **Environment** 中手动填写两个变量：
+   - `DATABASE_URL`：Neon PostgreSQL 连接串（用于访问审计日志持久化）。
+   - `SYSTEM_ADMIN_PASSWORD`：审计后台 `/system_admin` 的管理员密钥。
+
+## 访问审计后台（/system_admin）
+
+独立于业务系统的管理员入口，用于查看访客真实 IP、访问时间与登录用户。
+
+- **访问地址**：`https://<你的域名>/system_admin`
+- **鉴权**：独立密码（环境变量 `SYSTEM_ADMIN_PASSWORD`），与业务账号体系完全隔离。
+- **记录内容**：访问时间（UTC）、真实访客 IP（解析 `X-Forwarded-For`）、登录用户与角色、请求方法、请求地址、状态码、User-Agent。
+- **存储**：独立数据库，不写入业务库 `greenloop.db`。配置 `DATABASE_URL` 时使用 Neon PostgreSQL（重启不丢）；未配置时退化为本地 `access_log.db`。
+- **功能**：KPI 概览、近 N 天访问趋势、访问最多的 IP、最活跃用户、最近登录记录；支持按 IP / 用户 / 关键词 / 日期筛选与分页。
+- **只读接口**：`GET /system_admin/api/logs`（需先登录后台），便于后续导出或对接。
+
+> 说明：IP 归属地精确到城市需接入离线库或付费 API。当前仅做本地判断（公网 / 内网 / 本机），不产生外部请求，避免拖慢主站。
 
 ## 账号与权限
 

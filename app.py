@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import secrets
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -11,9 +12,18 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+import access_log
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "greenloop-demo-change-before-production")
 DB_PATH = os.environ.get("DATABASE_PATH", "greenloop.db")
+
+# --------------------------------------------------------------------------- #
+# 系统管理员独立入口（/system_admin）配置
+# 该入口与业务登录体系完全隔离，使用独立密码与独立 session 键。
+# --------------------------------------------------------------------------- #
+SYSTEM_ADMIN_PASSWORD = os.environ.get("SYSTEM_ADMIN_PASSWORD", "greenloop-admin-2026")
+SYSTEM_ADMIN_PATH = os.environ.get("SYSTEM_ADMIN_PATH", "system_admin").strip("/")
 
 RULES = [
     ("R01", "单据关联一致性"), ("R02", "重量偏差校验"), ("R03", "自然人身份完整性"),
@@ -662,9 +672,16 @@ def login():
         username=request.form.get("username", "").strip(); password=request.form.get("password", "")
         # 演示账户；部署时应替换为数据库密码哈希或企业 SSO。
         account = ACCOUNTS.get(username)
+        visitor_ip = access_log.client_ip(request)
         if account and password == account[0]:
             session["user"] = {"name": account[1], "role": account[2], "permissions": sorted(ROLE_PERMISSIONS[account[2]])}
+            # 审计：记录一次成功登录（含真实 IP）
+            access_log.mark_event(account[1], account[2], "login_success",
+                                  ip=visitor_ip, note=f"账号 {username} 登录成功", path="/login")
             return redirect(url_for("home"))
+        # 审计：记录失败尝试，便于发现异常爆破
+        access_log.mark_event(username or "(空账号)", "-", "login_failed",
+                              ip=visitor_ip, note="账号或密码不正确", path="/login")
         error="账号或密码不正确"
     return render_template("login.html", error=error)
 
@@ -1050,6 +1067,116 @@ def export():
     stream=io.BytesIO(); wb.save(stream); stream.seek(0)
     return send_file(stream,as_attachment=True,download_name="绿循智审_合规台账.xlsx",mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+# --------------------------------------------------------------------------- #
+# 系统管理员独立后台：/system_admin
+# 与业务登录体系完全隔离，使用独立密码与会话键，普通业务账号无法访问。
+# --------------------------------------------------------------------------- #
+
+def system_admin_authed():
+    return bool(session.get("system_admin"))
+
+
+@app.get(f"/{SYSTEM_ADMIN_PATH}")
+def system_admin_home():
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not system_admin_authed():
+        return render_template("system_admin.html", authed=False, error=None, now=now), 200
+
+    page = request.args.get("page", 1, type=int)
+    page_size = request.args.get("page_size", 50, type=int)
+    filters = {
+        "ip": request.args.get("ip", "").strip(),
+        "username": request.args.get("username", "").strip(),
+        "keyword": request.args.get("keyword", "").strip(),
+        "only_login": request.args.get("only_login", "") == "1",
+        "date_from": request.args.get("date_from", "").strip(),
+        "date_to": request.args.get("date_to", "").strip(),
+    }
+    days = request.args.get("days", 7, type=int)
+
+    result = access_log.query_logs(page=page, page_size=page_size, **filters)
+    stats = access_log.query_stats(days=days)
+    total_pages = max(1, (result["total"] + result["page_size"] - 1) // result["page_size"])
+
+    def page_url(target_page):
+        args = request.args.to_dict(flat=True)
+        args["page"] = target_page
+        query = "&".join(f"{k}={v}" for k, v in args.items())
+        return f"{url_for('system_admin_home')}?{query}"
+
+    return render_template(
+        "system_admin.html",
+        authed=True,
+        now=now,
+        backend=access_log.backend_name(),
+        filters=filters,
+        days=days,
+        stats=stats,
+        rows=result["rows"],
+        total=result["total"],
+        page=result["page"],
+        page_size=result["page_size"],
+        total_pages=total_pages,
+        ip_options=access_log.distinct_values("ip", 100),
+        user_options=access_log.distinct_values("username", 100),
+        page_url=page_url,
+    )
+
+
+@app.post(f"/{SYSTEM_ADMIN_PATH}")
+def system_admin_login():
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    password = request.form.get("password", "")
+    visitor_ip = access_log.client_ip(request)
+    if secrets.compare_digest(password, SYSTEM_ADMIN_PASSWORD):
+        session["system_admin"] = True
+        access_log.mark_event("system_admin", "系统管理员", "admin_login_success",
+                              ip=visitor_ip, note="审计台登录成功", path=f"/{SYSTEM_ADMIN_PATH}")
+        return redirect(url_for("system_admin_home"))
+    access_log.mark_event("system_admin", "系统管理员", "admin_login_failed",
+                          ip=visitor_ip, note="审计台密钥错误", path=f"/{SYSTEM_ADMIN_PATH}")
+    return render_template("system_admin.html", authed=False,
+                           error="管理员密钥不正确", now=now), 401
+
+
+@app.post(f"/{SYSTEM_ADMIN_PATH}/logout")
+def system_admin_logout():
+    session.pop("system_admin", None)
+    return redirect(url_for("system_admin_home"))
+
+
+@app.get(f"/{SYSTEM_ADMIN_PATH}/api/logs")
+def system_admin_api_logs():
+    """只读审计数据接口，供后续对接或导出使用。"""
+    if not system_admin_authed():
+        return jsonify({"error": "unauthorized"}), 401
+    page = request.args.get("page", 1, type=int)
+    page_size = request.args.get("page_size", 50, type=int)
+    filters = {
+        "ip": request.args.get("ip", "").strip(),
+        "username": request.args.get("username", "").strip(),
+        "keyword": request.args.get("keyword", "").strip(),
+        "only_login": request.args.get("only_login", "") == "1",
+        "date_from": request.args.get("date_from", "").strip(),
+        "date_to": request.args.get("date_to", "").strip(),
+    }
+    return jsonify({"backend": access_log.backend_name(),
+                    "stats": access_log.query_stats(days=request.args.get("days", 7, type=int)),
+                    **access_log.query_logs(page=page, page_size=page_size, **filters)})
+
+
+# --------------------------------------------------------------------------- #
+# 启动：初始化业务库 + 访问日志库，并挂载审计中间件
+# --------------------------------------------------------------------------- #
+
+def bootstrap():
+    init_db()
+    backend = access_log.init_app(app)
+    print(f"[access-log] 存储后端: {backend}")
+    return backend
+
+
+ACCESS_LOG_BACKEND = bootstrap()
+
 if __name__ == "__main__":
-    init_db(); app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
-else: init_db()
+    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT",5000)))

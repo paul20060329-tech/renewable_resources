@@ -7,3 +7,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.5
+      # 访问审计日志专用数据库（Neon PostgreSQL）。
+      # sync: false 表示不在仓库中保存明文，需在 Render 控制台手动填写。
+      - key: DATABASE_URL
+        sync: false
+      # 审计后台 /system_admin 的管理员密钥，请在 Render 控制台填写。
+      - key: SYSTEM_ADMIN_PASSWORD
+        sync: false
+      # 可选：自定义审计后台路径，默认 system_admin。
+      - key: SYSTEM_ADMIN_PATH
+        value: system_admin
