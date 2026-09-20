@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "visual-check",
+  "evidenceKind": "automated-browser",
+  "status": "fail",
+  "visualReview": "pending",
+  "artifact": {
+    "path": "C:\\Users\\ASUS\\OneDrive\\桌面\\renewable_resources\\greenloop-architecture\\greenloop-architecture.html",
+    "sha256": "d893b9e98718aa290ddfc3c4df9ffa53a48f9d801a8256720641ffe361d0ecf0",
+    "bytes": 818608
+  },
+  "state": {
+    "detail": "read",
+    "motion": "still"
+  },
+  "chrome": {
+    "status": "available",
+    "executable": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/visual-check-runtime",
+      "severity": "error",
+      "message": "visual-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "C:\\Users\\ASUS\\OneDrive\\桌面\\renewable_resources\\greenloop-architecture\\greenloop-architecture.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools process exit failed: Chrome closed with exit code 2147483651\nChrome process: exit code 2147483651.\nChrome stderr:\n[3996:20384:0920/110959.471:ERROR:chrome\\installer\\util\\google_update_settings_win.cc:544] Failed opening key Software\\Microsoft\\EdgeUpdate\\ClientStateMedium\\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062} to set usagestats; result: 5\r\n[3996:31344:0920/110959.472:ERROR:chrome\\browser\\net\\system_network_context_manager.cc:1191] Cannot use V8 Proxy resolver in single process mode.\r\n[3996:20384:0920/110959.472:ERROR:chrome\\installer\\util\\google_update_settings_win.cc:587] Failed opening key Software\\Microsoft\\EdgeUpdate\\ClientStateMedium\\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062} to set urlstats; result: 5\r\n[3996:31344:0920/110959.503:ERROR:components\\edge_ess\\vbs_encoder.cc:100] LoadEnclaveImageW failed, error code 577\r\n[3996:31344:0920/110959.511:ERROR:chrome\\browser\\net\\system_network_context_manager.cc:1191] Cannot use V8 Proxy resolver in single process mode.\r\n[3996:26316:0920/110959.647:ERROR:chrome\\installer\\util\\google_update_settings_win.cc:544] Failed opening key Software\\Microsoft\\EdgeUpdate\\ClientStateMedium\\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062} to set usagestats; result: 5\r\n[3996:31344:0920/110959.647:ERROR:chrome\\browser\\ui\\edge_window_tab_manager\\api\\wtm_interface_impl.cc:463] Failed to open registry key\r\n[3996:31344:0920/110959.658:ERROR:chrome\\browser\\net\\system_network_context_manager.cc:1191] Cannot use V8 Proxy resolver in single process mode."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun visual-check"
+      ]
+    }
+  ],
+  "containment": {
+    "status": "fail",
+    "viewports": []
+  },
+  "readability": {
+    "status": "fail",
+    "minimumProjectedNodeTextPx": 6,
+    "viewports": []
+  },
+  "viewerChrome": {
+    "status": "fail",
+    "viewports": []
+  },
+  "captures": {
+    "status": "fail",
+    "screenshots": [],
+    "contactSheet": null
+  },
+  "sidecars": {
+    "receipt": "greenloop-architecture.visual-check.json",
+    "contactSheet": "greenloop-architecture.visual-check.html"
+  },
+  "error": "Chrome DevTools process exit failed: Chrome closed with exit code 2147483651\nChrome process: exit code 2147483651.\nChrome stderr:\n[3996:20384:0920/110959.471:ERROR:chrome\\installer\\util\\google_update_settings_win.cc:544] Failed opening key Software\\Microsoft\\EdgeUpdate\\ClientStateMedium\\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062} to set usagestats; result: 5\r\n[3996:31344:0920/110959.472:ERROR:chrome\\browser\\net\\system_network_context_manager.cc:1191] Cannot use V8 Proxy resolver in single process mode.\r\n[3996:20384:0920/110959.472:ERROR:chrome\\installer\\util\\google_update_settings_win.cc:587] Failed opening key Software\\Microsoft\\EdgeUpdate\\ClientStateMedium\\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062} to set urlstats; result: 5\r\n[3996:31344:0920/110959.503:ERROR:components\\edge_ess\\vbs_encoder.cc:100] LoadEnclaveImageW failed, error code 577\r\n[3996:31344:0920/110959.511:ERROR:chrome\\browser\\net\\system_network_context_manager.cc:1191] Cannot use V8 Proxy resolver in single process mode.\r\n[3996:26316:0920/110959.647:ERROR:chrome\\installer\\util\\google_update_settings_win.cc:544] Failed opening key Software\\Microsoft\\EdgeUpdate\\ClientStateMedium\\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062} to set usagestats; result: 5\r\n[3996:31344:0920/110959.647:ERROR:chrome\\browser\\ui\\edge_window_tab_manager\\api\\wtm_interface_impl.cc:463] Failed to open registry key\r\n[3996:31344:0920/110959.658:ERROR:chrome\\browser\\net\\system_network_context_manager.cc:1191] Cannot use V8 Proxy resolver in single process mode."
+}

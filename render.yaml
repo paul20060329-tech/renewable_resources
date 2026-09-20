@@ -1,4 +1,10 @@
 services:
+  # 静态网站：greenloop-architecture 架构图页面
+  - type: web
+    name: greenloop-architecture
+    runtime: static
+    staticPublishPath: ./site
+    buildCommand: echo "static site, no build needed"
   - type: web
     name: greenloop-compliance
     runtime: python

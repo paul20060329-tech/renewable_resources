@@ -1,0 +1,370 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "绿循智审 · 再生资源合规平台高层架构",
+    "locale": "zh-CN",
+    "output": "greenloop-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1380,
+      900
+    ],
+    "repository": {
+      "url": "https://github.com/paul20060329-tech/renewable_resources",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "7b036d7108f98fc6a3f3c326ead54373c559ec1a"
+    },
+    "views": [
+      {
+        "id": "business-path",
+        "label": "业务主链路",
+        "focus": [
+          "operator",
+          "web-ui",
+          "flask-app",
+          "rule-engine",
+          "workflow",
+          "business-db"
+        ],
+        "note": "从角色用户进入工作台，经过规则核验与状态流转，最终持久化业务台账。"
+      },
+      {
+        "id": "document-intake",
+        "label": "单据导入与同步",
+        "focus": [
+          "documents",
+          "local-templates",
+          "web-ui",
+          "flask-app",
+          "rule-engine"
+        ],
+        "note": "Excel 单据和本地模板目录进入 Flask 导入接口，再由规则引擎自动核验。"
+      },
+      {
+        "id": "audit-and-deploy",
+        "label": "部署与访问审计",
+        "focus": [
+          "flask-app",
+          "audit-writer",
+          "audit-store",
+          "role-auth"
+        ],
+        "note": "同一应用可本地运行或由 Render/Gunicorn 托管，访问审计异步写入独立存储。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "业务人员 / 管理员",
+      "sublabel": "业务角色",
+      "pos": [
+        36,
+        360
+      ],
+      "size": [
+        170,
+        76
+      ]
+    },
+    {
+      "id": "web-ui",
+      "type": "frontend",
+      "label": "Web 工作台",
+      "sublabel": "Jinja 页面 + static/app.js",
+      "sources": [
+        { "path": "templates/index.html", "line": 1 },
+        { "path": "static/app.js", "line": 1 }
+      ],
+      "pos": [
+        250,
+        360
+      ],
+      "size": [
+        190,
+        76
+      ]
+    },
+    {
+      "id": "flask-app",
+      "type": "backend",
+      "label": "Flask 应用层",
+      "sublabel": "app.py · 页面 / JSON API / 导出",
+      "sources": [
+        { "path": "app.py", "line": 17 },
+        { "path": "app.py", "line": 663 },
+        { "path": "app.py", "line": 700 }
+      ],
+      "pos": [
+        500,
+        360
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "rule-engine",
+      "type": "backend",
+      "label": "合规规则与风险引擎",
+      "sublabel": "9 项规则 · 风险分级",
+      "sources": [
+        { "path": "app.py", "line": 377 },
+        { "path": "app.py", "line": 436 }
+      ],
+      "pos": [
+        760,
+        220
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "workflow",
+      "type": "backend",
+      "label": "业务工作流",
+      "sublabel": "核验 → 审批 → 付款 → 归档",
+      "sources": [
+        { "path": "app.py", "line": 491 },
+        { "path": "README.md", "line": 32 }
+      ],
+      "pos": [
+        760,
+        500
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "business-db",
+      "type": "database",
+      "label": "业务数据库",
+      "sublabel": "greenloop.db · SQLite",
+      "sources": [
+        { "path": "app.py", "line": 181 },
+        { "path": "app.py", "line": 309 }
+      ],
+      "pos": [
+        1040,
+        360
+      ],
+      "size": [
+        190,
+        76
+      ]
+    },
+    {
+      "id": "documents",
+      "type": "external",
+      "label": "业务单据与模板",
+      "sublabel": "Excel / PDF / 三单工作表",
+      "sources": [
+        { "path": "README.md", "line": 39 }
+      ],
+      "pos": [
+        250,
+        110
+      ],
+      "size": [
+        200,
+        76
+      ]
+    },
+    {
+      "id": "local-templates",
+      "type": "cloud",
+      "label": "本地模板同步",
+      "sublabel": "local_templates/ · 轮询更新",
+      "sources": [
+        { "path": "app.py", "line": 36 },
+        { "path": "app.py", "line": 948 }
+      ],
+      "pos": [
+        500,
+        110
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "role-auth",
+      "type": "security",
+      "label": "会话与角色权限",
+      "sublabel": "Flask session · ROLE_PERMISSIONS",
+      "sources": [
+        { "path": "app.py", "line": 18 },
+        { "path": "app.py", "line": 41 }
+      ],
+      "pos": [
+        250,
+        220
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "audit-writer",
+      "type": "security",
+      "label": "访问审计写入器",
+      "sublabel": "after_request · 队列批量落库",
+      "sources": [
+        { "path": "access_log.py", "line": 1 },
+        { "path": "app.py", "line": 1174 }
+      ],
+      "pos": [
+        500,
+        620
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "audit-store",
+      "type": "database",
+      "label": "独立审计存储",
+      "sublabel": "access_log.db / Neon PostgreSQL",
+      "sources": [
+        { "path": "access_log.py", "line": 1 },
+        { "path": "README.md", "line": 19 }
+      ],
+      "pos": [
+        800,
+        620
+      ],
+      "size": [
+        190,
+        76
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "operator-to-ui",
+      "from": "operator",
+      "to": "web-ui",
+      "label": "浏览器访问",
+      "labelDy": -32,
+      "variant": "emphasis"
+    },
+    {
+      "id": "ui-to-flask",
+      "from": "web-ui",
+      "to": "flask-app",
+      "label": "HTTP / JSON",
+      "variant": "emphasis"
+    },
+    {
+      "id": "documents-to-flask",
+      "from": "documents",
+      "to": "flask-app",
+      "label": "上传 XLSX / 单据",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "templates-to-flask",
+      "from": "local-templates",
+      "to": "flask-app",
+      "label": "轮询 / 同步模板",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": -70,
+      "variant": "dashed"
+    },
+    {
+      "id": "flask-to-rules",
+      "from": "flask-app",
+      "to": "rule-engine",
+      "label": "执行 9 条规则",
+      "fromSide": "top",
+      "toSide": "left",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rules-to-workflow",
+      "from": "rule-engine",
+      "to": "workflow",
+      "label": "通过状态 + 风险等级",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "workflow-to-db",
+      "from": "workflow",
+      "to": "business-db",
+      "label": "状态 / payload 持久化",
+      "fromSide": "right",
+      "toSide": "bottom"
+    },
+    {
+      "id": "auth-to-flask",
+      "from": "role-auth",
+      "to": "flask-app",
+      "label": "session + 权限校验",
+      "fromSide": "right",
+      "toSide": "top",
+      "labelDx": 170,
+      "labelDy": -120,
+      "variant": "security"
+    },
+    {
+      "id": "flask-to-audit",
+      "from": "flask-app",
+      "to": "audit-writer",
+      "label": "after_request 记录访问",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24,
+      "variant": "dashed"
+    },
+    {
+      "id": "audit-to-store",
+      "from": "audit-writer",
+      "to": "audit-store",
+      "label": "批量写入 / 重试",
+      "labelDy": 62,
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "入口与数据",
+      "items": [
+        "角色用户通过 Jinja + JavaScript 工作台操作",
+        "Excel / PDF 单据与本地模板目录进入导入链路"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "业务核心",
+      "items": [
+        "Flask API 统一承载页面、JSON、导出和导入",
+        "9 项规则驱动风险分级，再推进核验、审批、付款、归档"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "审计与部署",
+      "items": [
+        "访问审计与业务库隔离，队列批量写入独立存储",
+        "本地开发使用 SQLite，Render 部署由 Gunicorn 启动"
+      ]
+    }
+  ]
+}
